@@ -73,7 +73,7 @@ func runScan(cfg ScanConfig) {
 	count, _ := strconv.Atoi(cfg.Count)
 	concurrency, _ := strconv.Atoi(cfg.Concurrency)
 	if concurrency <= 0 {
-		concurrency = 100
+		concurrency = 50
 	}
 	timeout := parseTimeout(cfg.Timeout, 3*time.Second)
 	tries, _ := strconv.Atoi(cfg.Tries)
@@ -291,9 +291,11 @@ func speedSampleForMode(mode prober.Mode) int64 {
 	if mode != prober.ModeHTTP {
 		return 0
 	}
-	// Small enough for large scans, big enough to catch IPs that connect but
-	// stall once real payload starts moving.
-	return 256 * 1024
+	// 64 KB is enough to detect IPs that stall on real data while still
+	// completing reliably on restricted/high-latency networks. 256 KB was too
+	// large: on throttled connections it consistently timed out, making every
+	// IP appear unhealthy even when the trace GET succeeded fine.
+	return 64 * 1024
 }
 
 func parseTimeout(raw string, fallback time.Duration) time.Duration {

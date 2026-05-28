@@ -101,8 +101,8 @@ type ScanConfig struct {
 func defaultScanConfig() ScanConfig {
 	return ScanConfig{
 		Count:       "500",
-		Concurrency: "100",
-		Timeout:     "3s",
+		Concurrency: "50",
+		Timeout:     "5s",
 		Tries:       "4",
 		Port:        "443",
 		Mode:        "http",
@@ -128,16 +128,16 @@ var quickCountPresets = []quickPreset{
 }
 
 var quickWorkersPresets = []quickPreset{
-	{"50  — safe for slow lines", "50"},
-	{"100 — default balanced", "100"},
-	{"200 — fast on good connections", "200"},
+	{"50  — default (restricted net)", "50"},
+	{"100 — balanced", "100"},
+	{"200 — fast (good connections)", "200"},
 	{"Custom", ""},
 }
 
 var quickTimeoutPresets = []quickPreset{
 	{"2s  — aggressive (fast net)", "2s"},
-	{"3s  — default balanced", "3s"},
-	{"5s  — relaxed (slow/lossy net)", "5s"},
+	{"3s  — balanced", "3s"},
+	{"5s  — default (restricted net)", "5s"},
 	{"Custom", ""},
 }
 
@@ -400,8 +400,8 @@ func (m AppModel) selectMenuItem() (tea.Model, tea.Cmd) {
 	case menuQuickScan:
 		m.quickRow = qRowCount
 		m.quickCountIdx = 0
-		m.quickWorkersIdx = 1 // default: 100
-		m.quickTimeoutIdx = 1 // default: 3s
+		m.quickWorkersIdx = 0 // default: 50 (safe for restricted networks)
+		m.quickTimeoutIdx = 2 // default: 5s (recommended for restricted networks)
 		m.quickCustomMode = false
 		m.quickCustomInput.SetValue("")
 		m.quickCustomInput.Blur()

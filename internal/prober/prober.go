@@ -185,16 +185,20 @@ func probeHTTP(ctx context.Context, ip net.IP, port int, sni string, timeout tim
 ) {
 	addr := fmt.Sprintf("%s:%d", ip.String(), port)
 
+	// Budget split: TCP gets ¼, TLS gets ½, leaving ¼ guaranteed for the HTTP
+	// GET+response. Without this, on DPI-throttled networks the TLS handshake
+	// can silently consume the entire http.Client.Timeout, making the HTTP
+	// phase impossible and producing false-positive packet loss.
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(ctx, network, addr)
+			return (&net.Dialer{Timeout: timeout / 4}).DialContext(ctx, network, addr)
 		},
 		TLSClientConfig: &tls.Config{
 			ServerName: sni,
 			MinVersion: tls.VersionTLS12,
 		},
 		DisableKeepAlives:   true,
-		TLSHandshakeTimeout: timeout,
+		TLSHandshakeTimeout: timeout / 2,
 	}
 
 	client := &http.Client{
@@ -247,14 +251,14 @@ func probeDownload(ctx context.Context, ip net.IP, port int, timeout time.Durati
 	addr := fmt.Sprintf("%s:%d", ip.String(), port)
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(ctx, network, addr)
+			return (&net.Dialer{Timeout: timeout / 4}).DialContext(ctx, network, addr)
 		},
 		TLSClientConfig: &tls.Config{
 			ServerName: "speed.cloudflare.com",
 			MinVersion: tls.VersionTLS12,
 		},
 		DisableKeepAlives:   true,
-		TLSHandshakeTimeout: timeout,
+		TLSHandshakeTimeout: timeout / 2,
 	}
 	client := &http.Client{Timeout: timeout, Transport: transport}
 
