@@ -139,7 +139,9 @@ func runScan(cfg ScanConfig) {
 		if !passesColoFilter(r, coloSet) {
 			return
 		}
-		if writer != nil {
+		// Only healthy IPs go to the output file; writing every scanned IP
+		// would flood the file with thousands of failed probes.
+		if writer != nil && r.IsHealthy() {
 			_ = writer.Write(r)
 		}
 		if prog != nil {

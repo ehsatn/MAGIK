@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -638,6 +639,9 @@ func (m AppModel) launchQuickScan() (tea.Model, tea.Cmd) {
 		cfg.Timeout = m.scanCfg.Timeout
 	}
 
+	// Auto-save healthy IPs to a timestamped txt file in the current directory.
+	cfg.OutputFile = fmt.Sprintf("results_%s.txt", time.Now().Format("20060102_150405"))
+
 	m.scanCfg = cfg
 	m.scanResults = nil
 	m.scanDone = false
@@ -733,6 +737,8 @@ func (m AppModel) handleLiveScanKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.scanDone {
 			m.page = PageResults
 		}
+	case "c":
+		m.statusMsg = m.copyHealthyIPsToClipboard()
 	}
 	return m, nil
 }
@@ -747,8 +753,28 @@ func (m AppModel) handleResultsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.sortIdx = (m.sortIdx + 1) % 5
 		m.sortBy = result.SortBy(m.sortIdx)
 		result.Sort(m.scanResults, m.sortBy)
+	case "c":
+		m.statusMsg = m.copyHealthyIPsToClipboard()
 	}
 	return m, nil
+}
+
+// copyHealthyIPsToClipboard writes one IP per line to the system clipboard
+// and returns a short status message to display to the user.
+func (m AppModel) copyHealthyIPsToClipboard() string {
+	top := result.TopN(m.scanResults, 0) // all healthy IPs, sorted by avg
+	if len(top) == 0 {
+		return "no healthy IPs to copy"
+	}
+	var sb strings.Builder
+	for _, r := range top {
+		sb.WriteString(r.IP.String())
+		sb.WriteRune('\n')
+	}
+	if err := clipboard.WriteAll(sb.String()); err != nil {
+		return fmt.Sprintf("clipboard error: %v", err)
+	}
+	return fmt.Sprintf("✓ copied %d IPs to clipboard", len(top))
 }
 
 func (m AppModel) handleColosKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -1091,9 +1117,12 @@ func (m AppModel) viewLiveScan() string {
 
 	sb.WriteRune('\n')
 	sortNames := []string{"avg", "loss", "jitter", "colo", "speed"}
-	hint := fmt.Sprintf("  s sort(→%s)   q/esc back", sortNames[m.sortIdx%5])
+	hint := fmt.Sprintf("  s sort(→%s)   c copy IPs   q/esc back", sortNames[m.sortIdx%5])
 	if m.scanDone {
-		hint = fmt.Sprintf("  s sort(→%s)   enter/q → results", sortNames[m.sortIdx%5])
+		hint = fmt.Sprintf("  s sort(→%s)   c copy IPs   enter/q → results", sortNames[m.sortIdx%5])
+	}
+	if m.statusMsg != "" {
+		sb.WriteString(styleGood.Render("  "+m.statusMsg) + "\n")
 	}
 	sb.WriteString(styleHint.Render(hint))
 	return sb.String()
@@ -1146,8 +1175,14 @@ func (m AppModel) viewResults() string {
 	}
 	sb.WriteString("\n")
 	sb.WriteString(styleDim.Render(fmt.Sprintf("  Total probed: %d   healthy: %d   unhealthy: %d\n", total, healthy, total-healthy)))
+	if m.scanCfg.OutputFile != "" {
+		sb.WriteString(styleDim.Render(fmt.Sprintf("  Saved → %s\n", m.scanCfg.OutputFile)))
+	}
 	sb.WriteString("\n")
-	sb.WriteString(styleHint.Render("  s sort   enter/q → home menu"))
+	if m.statusMsg != "" {
+		sb.WriteString(styleGood.Render("  "+m.statusMsg) + "\n")
+	}
+	sb.WriteString(styleHint.Render("  s sort   c copy IPs   enter/q → home menu"))
 	return sb.String()
 }
 

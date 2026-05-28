@@ -151,15 +151,9 @@ func (w *Writer) writeJSON(r *result.Result) error {
 }
 
 func (w *Writer) writeTXT(r *result.Result) error {
-	line := fmt.Sprintf("%-15s  loss=%-5.1f%%  avg=%-7.2fms  jitter=%-7.2fms  dl=%-7.1fKB/s  colo=%-4s\n",
-		r.IP.String(),
-		r.Loss(),
-		ms(r.Avg()),
-		ms(r.Jitter()),
-		r.Throughput/1024,
-		r.Colo,
-	)
-	_, err := w.f.WriteString(line)
+	// Plain IP-per-line format so the file can be pasted directly into
+	// proxy / VPN tools (Xray, Sing-Box, etc.) without editing.
+	_, err := w.f.WriteString(r.IP.String() + "\n")
 	return err
 }
 
