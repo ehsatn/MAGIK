@@ -104,7 +104,11 @@ func Probe(ctx context.Context, ip net.IP, cfg Config) *result.Result {
 		case ModeTLS:
 			lat, tlsOk = probeTLS(ctx, ip, cfg.Port, sni, cfg.Timeout)
 		case ModeHTTP:
-			lat, tlsOk, httpStatus, colo, throughput = probeHTTP(ctx, ip, cfg.Port, sni, cfg.Timeout, cfg.SpeedBytes)
+			var wsOk bool
+			lat, tlsOk, httpStatus, colo, throughput, wsOk = probeHTTP(ctx, ip, cfg.Port, sni, cfg.Timeout, cfg.SpeedBytes)
+			if wsOk {
+				r.WSOk = true
+			}
 		}
 
 		r.Latencies[i] = lat
@@ -181,7 +185,7 @@ func probeTLS(ctx context.Context, ip net.IP, port int, sni string, timeout time
 // probeHTTP fetches /cdn-cgi/trace to confirm the IP is a real Cloudflare edge
 // and to determine the colo identifier.
 func probeHTTP(ctx context.Context, ip net.IP, port int, sni string, timeout time.Duration, speedBytes int64) (
-	lat time.Duration, tlsOk bool, httpStatus int, colo string, throughput float64,
+	lat time.Duration, tlsOk bool, httpStatus int, colo string, throughput float64, wsOk bool,
 ) {
 	addr := fmt.Sprintf("%s:%d", ip.String(), port)
 
@@ -221,7 +225,7 @@ func probeHTTP(ctx context.Context, ip net.IP, port int, sni string, timeout tim
 	start := time.Now()
 	resp, err := client.Do(req)
 	if err != nil {
-		return 0, false, 0, "", 0
+		return 0, false, 0, "", 0, false
 	}
 	lat = time.Since(start)
 	defer resp.Body.Close()
@@ -237,7 +241,76 @@ func probeHTTP(ctx context.Context, ip net.IP, port int, sni string, timeout tim
 	if speedBytes > 0 && httpStatus >= 200 && httpStatus < 400 && colo != "" {
 		throughput = probeDownload(ctx, ip, port, timeout, speedBytes)
 	}
+
+	// WebSocket hold test — only if HTTP succeeded and we have a colo
+	if httpStatus >= 200 && httpStatus < 400 && colo != "" {
+		wsOk = probeWebSocket(ctx, ip, port, sni, timeout)
+	}
+
 	return
+}
+
+// probeWebSocket attempts a WebSocket upgrade and holds the connection briefly
+// to detect IPs where DPI kills WebSocket streams after the initial handshake.
+// Returns true if the WS upgrade succeeds and the connection stays alive for
+// at least 2 seconds without being reset.
+func probeWebSocket(ctx context.Context, ip net.IP, port int, sni string, timeout time.Duration) bool {
+	addr := fmt.Sprintf("%s:%d", ip.String(), port)
+
+	dialer := &net.Dialer{Timeout: timeout / 3}
+	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+
+	tlsConn := tls.Client(conn, &tls.Config{
+		ServerName: sni,
+		MinVersion: tls.VersionTLS12,
+	})
+	if err := tlsConn.HandshakeContext(ctx); err != nil {
+		return false
+	}
+
+	// Send WebSocket upgrade request
+	wsReq := fmt.Sprintf(
+		"GET /cdn-cgi/trace HTTP/1.1\r\n"+
+			"Host: %s\r\n"+
+			"Upgrade: websocket\r\n"+
+			"Connection: Upgrade\r\n"+
+			"Sec-WebSocket-Key: dGVzdGtleQ==\r\n"+
+			"Sec-WebSocket-Version: 13\r\n"+
+			"\r\n", sni)
+
+	tlsConn.SetDeadline(time.Now().Add(timeout))
+	if _, err := tlsConn.Write([]byte(wsReq)); err != nil {
+		return false
+	}
+
+	// Read response - we just need to confirm the connection stays alive
+	buf := make([]byte, 4096)
+	n, err := tlsConn.Read(buf)
+	if err != nil || n == 0 {
+		return false
+	}
+
+	// Check if we got any HTTP response (101, 400, 404 all mean CF is reachable)
+	resp := string(buf[:n])
+	if !strings.Contains(resp, "HTTP/") {
+		return false
+	}
+
+	// Hold connection for 2 seconds to detect DPI killing it
+	time.Sleep(2 * time.Second)
+
+	// Try to write again - if connection was RST'd, this will fail
+	tlsConn.SetDeadline(time.Now().Add(2 * time.Second))
+	_, err = tlsConn.Write([]byte("ping"))
+	if err != nil {
+		return false // Connection was killed by DPI
+	}
+
+	return true
 }
 
 // probeDownload fetches a small sample from speed.cloudflare.com while forcing

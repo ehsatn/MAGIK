@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -12,7 +13,11 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/matinsenpai/senpaiscanner/internal/banner"
+	"github.com/matinsenpai/senpaiscanner/internal/engine"
+	"github.com/matinsenpai/senpaiscanner/internal/ipsrc"
+	"github.com/matinsenpai/senpaiscanner/internal/prober"
 	"github.com/matinsenpai/senpaiscanner/internal/result"
+	"github.com/matinsenpai/senpaiscanner/internal/xraytest"
 )
 
 // ---------------------------------------------------------------------------
@@ -195,6 +200,22 @@ type AppModel struct {
 	colosResults []*result.Result
 	colosDone    bool
 
+	// scan with config
+	configInput    textinput.Model
+	configResults  []*xraytest.ValidationResult
+	configScanning bool
+	configDone     bool
+	configTotal    int
+	// config setup options
+	configURL      string
+	configCountIdx int // 0=1000, 1=5000, 2=20000
+	configTopNIdx  int // 0=10, 1=20, 2=50
+	configSetupRow int // which row is focused (0=count, 1=topN)
+	// phase 1 state
+	configPhase1Results []*result.Result
+	configPhase1Done    bool
+	configPhase1Stats   StatsMsg
+
 	// shared
 	statusMsg string
 	version   string
@@ -208,6 +229,7 @@ type menuEntry struct {
 var menuEntries = []menuEntry{
 	{"Quick Scan", "scan random Cloudflare IPs"},
 	{"Custom Scan", "configure count, mode, CIDR, output…"},
+	{"Scan with Config", "test IPs with your VLESS/xray config"},
 	{"Test IPs", "deep-test a list of IPs from file"},
 	{"Discover Colos", "find reachable Cloudflare PoPs"},
 	{"About", ""},
@@ -217,12 +239,13 @@ var menuEntries = []menuEntry{
 const menuLabelWidth = 16
 
 const (
-	menuQuickScan  = 0
-	menuCustomScan = 1
-	menuTestIPs    = 2
-	menuColos      = 3
-	menuAbout      = 4
-	menuQuit       = 5
+	menuQuickScan      = 0
+	menuCustomScan     = 1
+	menuScanWithConfig = 2
+	menuTestIPs        = 3
+	menuColos          = 4
+	menuAbout          = 5
+	menuQuit           = 6
 )
 
 var modes = []string{"tls", "tcp", "http"}
@@ -251,6 +274,13 @@ func NewApp(version string) AppModel {
 		scanStarted:      time.Now(),
 		quickCustomInput: customInput,
 	}
+
+	// Config input for "Scan with Config"
+	cfgInput := textinput.New()
+	cfgInput.Placeholder = "vless://..."
+	cfgInput.CharLimit = 2000
+	cfgInput.Width = 0 // 0 = no fixed width, grows with content
+	m.configInput = cfgInput
 	m.modeIdx = modeIndex(m.scanCfg.Mode)
 	m.buildFormInputs()
 	return m
@@ -344,6 +374,38 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.colosDone = true
 		return m, nil
 
+	case ConfigProgressMsg:
+		m.configResults = append(m.configResults, msg.Result)
+		m.configTotal = msg.Total
+		return m, nil
+
+	case ConfigDoneMsg:
+		m.configScanning = false
+		m.configDone = true
+		return m, nil
+
+	case ConfigPhase1ResultMsg:
+		m.configPhase1Results = append(m.configPhase1Results, msg.Result)
+		return m, nil
+
+	case ConfigPhase1DoneMsg:
+		m.configPhase1Done = true
+		// Start Phase 2 with top N IPs
+		m.page = PageConfigPhase2
+		m.configScanning = true
+		m.configDone = false
+		m.configResults = nil
+		topN := configTopNValues[m.configTopNIdx]
+		var topIPs []*result.Result
+		if topN == 0 {
+			// "All" — use all healthy IPs
+			topIPs = result.TopN(m.configPhase1Results, 0)
+		} else {
+			topIPs = result.TopN(m.configPhase1Results, topN)
+		}
+		m.configTotal = len(topIPs)
+		return m, m.startConfigPhase2(topIPs)
+
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -374,6 +436,12 @@ func (m AppModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.page = PageHome
 		}
 		return m, nil
+	case PageScanWithConfig:
+		return m.handleScanWithConfigKey(msg)
+	case PageConfigPhase1:
+		return m.handleConfigPhase1Key(msg)
+	case PageConfigPhase2:
+		return m.handleScanWithConfigKey(msg)
 	}
 	return m, nil
 }
@@ -412,6 +480,17 @@ func (m AppModel) selectMenuItem() (tea.Model, tea.Cmd) {
 	case menuCustomScan:
 		m.buildFormInputs()
 		m.page = PageScanConfig
+	case menuScanWithConfig:
+		m.page = PageScanWithConfig
+		m.configInput.SetValue("")
+		m.configInput.Focus()
+		m.configResults = nil
+		m.configScanning = false
+		m.configDone = false
+		m.configSetupRow = 0
+		m.configCountIdx = 1 // default: 5000
+		m.configTopNIdx = 0  // default: 10
+		return m, textinput.Blink
 	case menuTestIPs:
 		m.statusMsg = "  Place IPs in 'ips.txt' (one per line) then press Enter"
 		m.scanResults = nil
@@ -830,6 +909,12 @@ func (m AppModel) View() string {
 		return m.viewLiveColos()
 	case PageAbout:
 		return m.viewAbout()
+	case PageScanWithConfig:
+		return m.viewScanWithConfig()
+	case PageConfigPhase1:
+		return m.viewConfigPhase1()
+	case PageConfigPhase2:
+		return m.viewScanWithConfig()
 	}
 	return ""
 }
@@ -1358,4 +1443,548 @@ func minInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// ---------------------------------------------------------------------------
+// Scan with Config page
+// ---------------------------------------------------------------------------
+
+func (m AppModel) viewScanWithConfig() string {
+	var sb strings.Builder
+
+	sb.WriteString(styleTitle.Render("\n  ⚡  Scan with Config\n"))
+	sb.WriteString(fmt.Sprintf("%s\n\n", styleSep.Render("  "+strings.Repeat("─", minInt(m.width-4, 70)))))
+
+	if !m.configScanning && !m.configDone {
+		// Row 0: URL input
+		if m.configSetupRow == 0 {
+			sb.WriteString(styleAccent.Render("  Config") + "  ")
+		} else {
+			sb.WriteString(styleDim.Render("  Config") + "  ")
+		}
+		sb.WriteString(m.configInput.View() + "\n")
+		sb.WriteString(styleDim.Render("           your VLESS share URL") + "\n\n")
+
+		// Row 1: Count
+		if m.configSetupRow == 1 {
+			sb.WriteString(styleAccent.Render("  Count "))
+		} else {
+			sb.WriteString(styleDim.Render("  Count "))
+		}
+		for i, label := range configCountLabels {
+			if i == m.configCountIdx {
+				sb.WriteString(styleSelected.Render(" " + label + " "))
+			} else {
+				sb.WriteString(styleNormal.Render("  " + label + "  "))
+			}
+			if i < len(configCountLabels)-1 {
+				sb.WriteString(styleDim.Render("│"))
+			}
+		}
+		sb.WriteString("\n")
+		sb.WriteString(styleDim.Render("           IPs to probe in Phase 1") + "\n\n")
+
+		// Row 2: Top N
+		if m.configSetupRow == 2 {
+			sb.WriteString(styleAccent.Render("  Top N "))
+		} else {
+			sb.WriteString(styleDim.Render("  Top N "))
+		}
+		for i, label := range configTopNLabels {
+			if i == m.configTopNIdx {
+				sb.WriteString(styleSelected.Render(" " + label + " "))
+			} else {
+				sb.WriteString(styleNormal.Render("  " + label + "  "))
+			}
+			if i < len(configTopNLabels)-1 {
+				sb.WriteString(styleDim.Render("│"))
+			}
+		}
+		sb.WriteString("\n")
+		sb.WriteString(styleDim.Render("           best IPs to validate with xray") + "\n\n")
+
+		sb.WriteString(styleHint.Render("  ↑/↓ row   ←/→ option   enter start   esc back") + "\n")
+		return sb.String()
+	}
+
+	// Stats row
+	done := len(m.configResults)
+	total := m.configTotal
+	if total == 0 {
+		total = 10
+	}
+	success := m.configSuccessCount()
+	failed := m.configFailCount()
+
+	icon := m.spinner.View()
+	if m.configDone {
+		icon = styleGood.Render("✓")
+	}
+
+	// Progress bar
+	pct := float64(done) / float64(total) * 100
+	bw := 22
+	filled := int(pct / 100 * float64(bw))
+	progBar := "[" + styleAccent.Render(strings.Repeat("█", filled)) +
+		styleDim.Render(strings.Repeat("░", bw-filled)) + "]" +
+		fmt.Sprintf(" %.0f%%", pct)
+
+	sb.WriteString(fmt.Sprintf("  %s  tested: %s  healthy: %s  failed: %s  %s\n\n",
+		icon,
+		styleAccent.Render(fmt.Sprintf("%d/%d", done, total)),
+		styleGood.Render(fmt.Sprintf("%d", success)),
+		styleBad.Render(fmt.Sprintf("%d", failed)),
+		progBar,
+	))
+
+	// Table header
+	hdr := fmt.Sprintf("  %-16s  %-8s  %8s  %8s  %6s",
+		"IP", "TYPE", "SPEED", "LATENCY", "STATUS")
+	sb.WriteString(fmt.Sprintf("%s\n%s\n", styleHeader.Render(hdr), styleSep.Render("  "+strings.Repeat("─", 56))))
+
+	// Results
+	maxRows := m.height - 12
+	if maxRows < 3 {
+		maxRows = 3
+	}
+	rows := m.configResults
+	if len(rows) > maxRows {
+		rows = rows[:maxRows]
+	}
+
+	for _, r := range rows {
+		if r.Success {
+			mbps := r.Throughput * 8 / 1000000
+			line := fmt.Sprintf("  %-16s  %-8s  %5.1f Mbps  %5dms  %6s",
+				r.IP, r.Transport, mbps, r.Latency.Milliseconds(), "✓")
+			sb.WriteString(styleGood.Render(line) + "\n")
+		} else {
+			errMsg := r.Error
+			if len(errMsg) > 20 {
+				errMsg = errMsg[:20] + "…"
+			}
+			line := fmt.Sprintf("  %-16s  %-8s  %9s  %8s  %6s",
+				r.IP, r.Transport, "—", "—", "✗")
+			sb.WriteString(styleBad.Render(line) + "\n")
+		}
+	}
+
+	sb.WriteRune('\n')
+	if m.configDone {
+		sb.WriteString(styleHint.Render("  q/esc back to menu") + "\n")
+	}
+
+	return sb.String()
+}
+
+func (m AppModel) configSuccessCount() int {
+	count := 0
+	for _, r := range m.configResults {
+		if r.Success {
+			count++
+		}
+	}
+	return count
+}
+
+func (m AppModel) configFailCount() int {
+	count := 0
+	for _, r := range m.configResults {
+		if !r.Success {
+			count++
+		}
+	}
+	return count
+}
+
+func (m AppModel) handleScanWithConfigKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		if m.configScanning || m.configDone {
+			m.page = PageHome
+			m.configScanning = false
+			m.configDone = false
+			return m, nil
+		}
+		m.page = PageHome
+		return m, nil
+	case "q":
+		if m.configDone {
+			m.page = PageHome
+			m.configDone = false
+			return m, nil
+		}
+	case "up", "k":
+		if !m.configScanning && !m.configDone {
+			if m.configSetupRow > 0 {
+				m.configSetupRow--
+			}
+			// Focus/blur text input
+			if m.configSetupRow == 0 {
+				m.configInput.Focus()
+			} else {
+				m.configInput.Blur()
+			}
+		}
+	case "down", "j":
+		if !m.configScanning && !m.configDone {
+			if m.configSetupRow < 2 {
+				m.configSetupRow++
+			}
+			if m.configSetupRow == 0 {
+				m.configInput.Focus()
+			} else {
+				m.configInput.Blur()
+			}
+		}
+	case "left", "h":
+		if !m.configScanning && !m.configDone {
+			if m.configSetupRow == 1 && m.configCountIdx > 0 {
+				m.configCountIdx--
+			} else if m.configSetupRow == 2 && m.configTopNIdx > 0 {
+				m.configTopNIdx--
+			}
+		}
+	case "right", "l":
+		if !m.configScanning && !m.configDone {
+			if m.configSetupRow == 1 && m.configCountIdx < len(configCountLabels)-1 {
+				m.configCountIdx++
+			} else if m.configSetupRow == 2 && m.configTopNIdx < len(configTopNLabels)-1 {
+				m.configTopNIdx++
+			}
+		}
+	case "enter":
+		if !m.configScanning && !m.configDone {
+			rawURL := m.configInput.Value()
+			if rawURL == "" {
+				return m, nil
+			}
+			_, err := xraytest.ParseVLESS(rawURL)
+			if err != nil {
+				return m, nil
+			}
+			m.configURL = rawURL
+			// Start Phase 1
+			m.page = PageConfigPhase1
+			m.configPhase1Results = nil
+			m.configPhase1Done = false
+			count := configCountValues[m.configCountIdx]
+			return m, m.startConfigPhase1(count)
+		}
+	}
+
+	// Forward key to text input when on row 0
+	if !m.configScanning && !m.configDone && m.configSetupRow == 0 {
+		var cmd tea.Cmd
+		m.configInput, cmd = m.configInput.Update(msg)
+		return m, cmd
+	}
+	return m, nil
+}
+
+// ConfigDoneMsg signals all config validations are complete.
+type ConfigDoneMsg struct{}
+
+// ConfigBatchResultMsg is no longer used — results come one by one via ConfigProgressMsg.
+type ConfigBatchResultMsg struct {
+	Results []*xraytest.ValidationResult
+}
+
+// ConfigProgressMsg carries a single result during scanning.
+type ConfigProgressMsg struct {
+	Result *xraytest.ValidationResult
+	Done   int
+	Total  int
+}
+
+func (m AppModel) startConfigScan(rawURL string) tea.Cmd {
+	return func() tea.Msg {
+		go runConfigScan(rawURL)
+		return nil
+	}
+}
+
+func runConfigScan(rawURL string) {
+	cfg, err := xraytest.ParseVLESS(rawURL)
+	if err != nil {
+		if prog != nil {
+			prog.Send(ConfigDoneMsg{})
+		}
+		return
+	}
+
+	// Top CF IPs to test
+	testIPs := []string{
+		"104.18.5.1", "104.17.0.1", "172.66.40.1",
+		"172.67.186.127", "104.21.19.146", "104.16.0.1",
+		"104.19.229.21", "104.18.10.1", "104.17.100.1",
+		"104.16.200.1",
+	}
+
+	ctx := context.Background()
+	total := len(testIPs)
+
+	for i, ip := range testIPs {
+		swapped := cfg.WithAddress(ip)
+		r := xraytest.ValidateConfig(ctx, swapped, 20*time.Second)
+		if prog != nil {
+			prog.Send(ConfigProgressMsg{
+				Result: r,
+				Done:   i + 1,
+				Total:  total,
+			})
+		}
+	}
+
+	if prog != nil {
+		prog.Send(ConfigDoneMsg{})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Config Setup presets
+// ---------------------------------------------------------------------------
+
+var configCountValues = []int{1000, 5000, 20000}
+var configCountLabels = []string{"1,000", "5,000", "20,000"}
+var configTopNValues = []int{10, 25, 50, 0}
+var configTopNLabels = []string{"10", "25", "50", "All"}
+
+// ---------------------------------------------------------------------------
+// Config Setup page
+// ---------------------------------------------------------------------------
+
+func (m AppModel) viewConfigSetup() string {
+	var sb strings.Builder
+
+	sb.WriteString(styleTitle.Render("\n  ⚡  Scan with Config — Setup\n"))
+	sb.WriteString(fmt.Sprintf("%s\n\n", styleSep.Render("  "+strings.Repeat("─", minInt(m.width-4, 70)))))
+
+	sb.WriteString(styleNormal.Render("  Phase 1: Fast connectivity scan to find reachable IPs") + "\n")
+	sb.WriteString(styleNormal.Render("  Phase 2: Test top IPs with your actual xray config") + "\n\n")
+
+	// Count row
+	countLabel := "  Count   "
+	for i, label := range configCountLabels {
+		if i == m.configCountIdx && m.configSetupRow == 0 {
+			sb.WriteString(styleSelected.Render(" " + label + " "))
+		} else {
+			sb.WriteString(styleNormal.Render("  " + label + "  "))
+		}
+		if i < len(configCountLabels)-1 {
+			sb.WriteString(styleDim.Render("│"))
+		}
+	}
+	sb.WriteString("\n")
+	if m.configSetupRow == 0 {
+		sb.WriteString(styleAccent.Render(countLabel) + styleDim.Render("IPs to probe in Phase 1") + "\n\n")
+	} else {
+		sb.WriteString(styleDim.Render(countLabel+"IPs to probe in Phase 1") + "\n\n")
+	}
+
+	// Top N row
+	topLabel := "  Top N   "
+	for i, label := range configTopNLabels {
+		if i == m.configTopNIdx && m.configSetupRow == 1 {
+			sb.WriteString(styleSelected.Render(" " + label + " "))
+		} else {
+			sb.WriteString(styleNormal.Render("  " + label + "  "))
+		}
+		if i < len(configTopNLabels)-1 {
+			sb.WriteString(styleDim.Render("│"))
+		}
+	}
+	sb.WriteString("\n")
+	if m.configSetupRow == 1 {
+		sb.WriteString(styleAccent.Render(topLabel) + styleDim.Render("best IPs to validate with xray") + "\n\n")
+	} else {
+		sb.WriteString(styleDim.Render(topLabel+"best IPs to validate with xray") + "\n\n")
+	}
+
+	sb.WriteString(styleHint.Render("  ↑/↓ row   ←/→ option   enter start   esc back") + "\n")
+
+	return sb.String()
+}
+
+func (m AppModel) handleConfigSetupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.page = PageScanWithConfig
+		return m, nil
+	case "up", "k":
+		if m.configSetupRow > 0 {
+			m.configSetupRow--
+		}
+	case "down", "j":
+		if m.configSetupRow < 1 {
+			m.configSetupRow++
+		}
+	case "left", "h":
+		if m.configSetupRow == 0 && m.configCountIdx > 0 {
+			m.configCountIdx--
+		} else if m.configSetupRow == 1 && m.configTopNIdx > 0 {
+			m.configTopNIdx--
+		}
+	case "right", "l":
+		if m.configSetupRow == 0 && m.configCountIdx < len(configCountLabels)-1 {
+			m.configCountIdx++
+		} else if m.configSetupRow == 1 && m.configTopNIdx < len(configTopNLabels)-1 {
+			m.configTopNIdx++
+		}
+	case "enter":
+		// Start Phase 1
+		m.page = PageConfigPhase1
+		m.configPhase1Results = nil
+		m.configPhase1Done = false
+		m.configPhase1Stats = StatsMsg{}
+		count := configCountValues[m.configCountIdx]
+		return m, m.startConfigPhase1(count)
+	}
+	return m, nil
+}
+
+// ---------------------------------------------------------------------------
+// Config Phase 1 — fast connectivity scan
+// ---------------------------------------------------------------------------
+
+type ConfigPhase1ResultMsg struct {
+	Result *result.Result
+}
+
+type ConfigPhase1StatsMsg = StatsMsg
+
+type ConfigPhase1DoneMsg struct{}
+
+func (m AppModel) viewConfigPhase1() string {
+	var sb strings.Builder
+
+	sb.WriteString(styleTitle.Render("\n  ⚡  Phase 1 — Finding reachable IPs\n"))
+	sb.WriteString(fmt.Sprintf("%s\n\n", styleSep.Render("  "+strings.Repeat("─", minInt(m.width-4, 70)))))
+
+	icon := m.spinner.View()
+	if m.configPhase1Done {
+		icon = styleGood.Render("✓")
+	}
+
+	healthy := 0
+	for _, r := range m.configPhase1Results {
+		if r.IsHealthy() {
+			healthy++
+		}
+	}
+
+	sb.WriteString(fmt.Sprintf("  %s  tested: %s  healthy: %s  target: %s\n\n",
+		icon,
+		styleAccent.Render(fmt.Sprintf("%d", len(m.configPhase1Results))),
+		styleGood.Render(fmt.Sprintf("%d", healthy)),
+		styleDim.Render(fmt.Sprintf("%d", configCountValues[m.configCountIdx])),
+	))
+
+	if m.configPhase1Done {
+		topN := configTopNValues[m.configTopNIdx]
+		sb.WriteString(styleGood.Render(fmt.Sprintf("  Found %d healthy IPs. Starting Phase 2 with top %d...\n", healthy, topN)))
+	} else {
+		sb.WriteString(styleNormal.Render("  Scanning Cloudflare IP ranges for connectivity...\n"))
+	}
+
+	sb.WriteString("\n" + styleHint.Render("  q/esc cancel") + "\n")
+	return sb.String()
+}
+
+func (m AppModel) handleConfigPhase1Key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q":
+		if scanCancel != nil {
+			scanCancel()
+		}
+		m.page = PageHome
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m AppModel) startConfigPhase1(count int) tea.Cmd {
+	return func() tea.Msg {
+		go runConfigPhase1(count)
+		return nil
+	}
+}
+
+func runConfigPhase1(count int) {
+	src, err := ipsrc.New(true, false, nil)
+	if err != nil {
+		if prog != nil {
+			prog.Send(ConfigPhase1DoneMsg{})
+		}
+		return
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	scanCancel = cancel
+	defer cancel()
+
+	engCfg := engine.Config{
+		Concurrency: 100,
+		ProbeConfig: prober.Config{
+			Port:       443,
+			Mode:       prober.ModeHTTP,
+			Tries:      2,
+			Timeout:    3 * time.Second,
+			SpeedBytes: 0, // no download in Phase 1 — just connectivity
+		},
+	}
+	eng := engine.New(engCfg)
+	ipStream := src.Stream(ctx, count)
+
+	eng.Run(ctx, ipStream, func(r *result.Result) {
+		if prog != nil {
+			prog.Send(ConfigPhase1ResultMsg{Result: r})
+		}
+	})
+
+	if prog != nil {
+		prog.Send(ConfigPhase1DoneMsg{})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Config Phase 2 — xray validation of top IPs
+// ---------------------------------------------------------------------------
+
+func (m AppModel) startConfigPhase2(topIPs []*result.Result) tea.Cmd {
+	url := m.configURL
+	return func() tea.Msg {
+		go runConfigPhase2(url, topIPs)
+		return nil
+	}
+}
+
+func runConfigPhase2(rawURL string, topIPs []*result.Result) {
+	cfg, err := xraytest.ParseVLESS(rawURL)
+	if err != nil {
+		if prog != nil {
+			prog.Send(ConfigDoneMsg{})
+		}
+		return
+	}
+
+	ctx := context.Background()
+	total := len(topIPs)
+
+	for i, r := range topIPs {
+		ip := r.IP.String()
+		swapped := cfg.WithAddress(ip)
+		vr := xraytest.ValidateConfig(ctx, swapped, 20*time.Second)
+		if prog != nil {
+			prog.Send(ConfigProgressMsg{
+				Result: vr,
+				Done:   i + 1,
+				Total:  total,
+			})
+		}
+	}
+
+	if prog != nil {
+		prog.Send(ConfigDoneMsg{})
+	}
 }

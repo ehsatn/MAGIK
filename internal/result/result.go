@@ -14,6 +14,7 @@ type Result struct {
 	ProbeMode   string          // tcp | tls | http
 	Latencies   []time.Duration // per-try latencies; 0 = failed try
 	TLSOk       bool
+	WSOk        bool // WebSocket connection survived hold test
 	HTTPStatus  int
 	Colo        string
 	Throughput  float64 // bytes/sec, 0 if not measured
