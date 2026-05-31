@@ -1,0 +1,10 @@
+SenPai Scanner — live results
+Started: 2026-05-31 19:45:58
+Updated: 2026-05-31 19:46:23
+Plan: Phase 1 connectivity only
+
+=== Phase 1 — connectivity (0 healthy / 163 probed) ===
+
+  ENDPOINT                   LOSS    AVG(ms)      COLO  STATUS
+  ────────────────────────────────────────────────────────────────
+  (no healthy results yet)
