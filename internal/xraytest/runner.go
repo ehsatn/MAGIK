@@ -20,6 +20,7 @@ import (
 )
 
 var portCounter atomic.Int32
+var stdioMu sync.Mutex
 
 const (
 	speedSampleBytes     = 512 * 1024
@@ -96,59 +97,39 @@ func validateOnce(ctx context.Context, cfg *VLESSConfig, timeout time.Duration) 
 	}
 	tmpFile.Close()
 
-	// Suppress xray stdout/stderr
-	oldStdout := os.Stdout
-	oldStderr := os.Stderr
-	devNull, _ := os.Open(os.DevNull)
-	os.Stdout = devNull
-	os.Stderr = devNull
+	var instance *xcore.Instance
+	err = withSuppressedXrayOutput(func() error {
+		tmpFile2, err := os.Open(tmpFile.Name())
+		if err != nil {
+			return fmt.Errorf("reopen config: %w", err)
+		}
+		defer tmpFile2.Close()
 
-	tmpFile2, err := os.Open(tmpFile.Name())
+		jsonConfig, err := serial.DecodeJSONConfig(tmpFile2)
+		if err != nil {
+			return fmt.Errorf("decode json config: %w", err)
+		}
+
+		pbConfig, err := jsonConfig.Build()
+		if err != nil {
+			return fmt.Errorf("build config: %w", err)
+		}
+
+		instance, err = xcore.New(pbConfig)
+		if err != nil {
+			return fmt.Errorf("create instance: %w", err)
+		}
+
+		if err := instance.Start(); err != nil {
+			return fmt.Errorf("start xray: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
-		os.Stdout = oldStdout
-		os.Stderr = oldStderr
-		devNull.Close()
-		res.Error = fmt.Sprintf("reopen config: %v", err)
-		return res
-	}
-
-	jsonConfig, err := serial.DecodeJSONConfig(tmpFile2)
-	tmpFile2.Close()
-	if err != nil {
-		os.Stdout = oldStdout
-		os.Stderr = oldStderr
-		devNull.Close()
-		res.Error = fmt.Sprintf("decode json config: %v", err)
-		return res
-	}
-
-	pbConfig, err := jsonConfig.Build()
-	if err != nil {
-		os.Stdout = oldStdout
-		os.Stderr = oldStderr
-		devNull.Close()
-		res.Error = fmt.Sprintf("build config: %v", err)
-		return res
-	}
-
-	instance, err := xcore.New(pbConfig)
-	if err != nil {
-		res.Error = fmt.Sprintf("create instance: %v", err)
-		return res
-	}
-
-	if err := instance.Start(); err != nil {
-		os.Stdout = oldStdout
-		os.Stderr = oldStderr
-		devNull.Close()
-		res.Error = fmt.Sprintf("start xray: %v", err)
+		res.Error = err.Error()
 		return res
 	}
 	defer instance.Close()
-
-	os.Stdout = oldStdout
-	os.Stderr = oldStderr
-	devNull.Close()
 
 	if !waitForPort(socksPort, 3*time.Second) {
 		res.Error = "socks port not ready after 3s"
@@ -431,4 +412,26 @@ func waitForPort(port int, timeout time.Duration) bool {
 		time.Sleep(100 * time.Millisecond)
 	}
 	return false
+}
+
+func withSuppressedXrayOutput(fn func() error) error {
+	stdioMu.Lock()
+	defer stdioMu.Unlock()
+
+	oldStdout := os.Stdout
+	oldStderr := os.Stderr
+	devNull, err := os.Open(os.DevNull)
+	if err != nil {
+		return fn()
+	}
+	defer devNull.Close()
+
+	os.Stdout = devNull
+	os.Stderr = devNull
+	defer func() {
+		os.Stdout = oldStdout
+		os.Stderr = oldStderr
+	}()
+
+	return fn()
 }
