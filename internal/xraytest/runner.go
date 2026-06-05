@@ -29,6 +29,11 @@ const (
 	traceProbeURL        = "https://cp.cloudflare.com/cdn-cgi/trace"
 )
 
+var traceProbeURLs = []string{
+	traceProbeURL,
+	"https://cloudflare.com/cdn-cgi/trace",
+}
+
 func init() {
 	portCounter.Store(20000)
 }
@@ -169,6 +174,36 @@ func proxyConnectivityCheck(ctx context.Context, proxyAddr string) (bool, time.D
 		Timeout:   clientTimeoutForContext(ctx, 15*time.Second),
 	}
 
+	return proxyConnectivityCheckTargets(ctx, client, traceProbeURLs)
+}
+
+func proxyConnectivityCheckTargets(ctx context.Context, client *http.Client, targets []string) (bool, time.Duration, error) {
+	if len(targets) == 0 {
+		return false, 0, fmt.Errorf("no trace probe targets configured")
+	}
+
+	var failures []string
+	var lastLatency time.Duration
+	for _, target := range targets {
+		ok, latency, err := proxyConnectivityCheckTarget(ctx, client, target)
+		if ok {
+			return true, latency, nil
+		}
+		if latency > 0 {
+			lastLatency = latency
+		}
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", target, err))
+		}
+		if ctx.Err() != nil {
+			return false, lastLatency, ctx.Err()
+		}
+	}
+
+	return false, lastLatency, fmt.Errorf("trace probe failed: %s", strings.Join(failures, "; "))
+}
+
+func proxyConnectivityCheckTarget(ctx context.Context, client *http.Client, target string) (bool, time.Duration, error) {
 	start := time.Now()
 	var latency time.Duration
 	gotFirst := false
@@ -182,7 +217,7 @@ func proxyConnectivityCheck(ctx context.Context, proxyAddr string) (bool, time.D
 	}
 	traceCtx := httptrace.WithClientTrace(ctx, trace)
 
-	req, err := http.NewRequestWithContext(traceCtx, http.MethodGet, traceProbeURL, nil)
+	req, err := http.NewRequestWithContext(traceCtx, http.MethodGet, target, nil)
 	if err != nil {
 		return false, 0, err
 	}

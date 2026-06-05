@@ -1,6 +1,9 @@
 package xraytest
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -38,5 +41,54 @@ func TestBurstProxyThroughputRequiresMinimumBytes(t *testing.T) {
 	bytes, tp := burstProxyThroughput(t.Context(), "socks5://127.0.0.1:1", traceProbeURL, speedSampleBytesFast)
 	if bytes != 0 || tp != 0 {
 		t.Fatalf("expected zero result on unreachable proxy, got bytes=%d tp=%f", bytes, tp)
+	}
+}
+
+func TestProxyConnectivityCheckFallsBackToSecondTraceTarget(t *testing.T) {
+	failedTarget := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "not here", http.StatusServiceUnavailable)
+	}))
+	defer failedTarget.Close()
+
+	workingTarget := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintln(w, "colo=SJC")
+	}))
+	defer workingTarget.Close()
+
+	ok, latency, err := proxyConnectivityCheckTargets(
+		t.Context(),
+		&http.Client{Timeout: time.Second},
+		[]string{failedTarget.URL, workingTarget.URL},
+	)
+	if err != nil {
+		t.Fatalf("proxyConnectivityCheckTargets returned error: %v", err)
+	}
+	if !ok {
+		t.Fatal("proxyConnectivityCheckTargets returned ok=false, want true")
+	}
+	if latency <= 0 {
+		t.Fatalf("latency = %s, want positive duration", latency)
+	}
+}
+
+func TestProxyConnectivityCheckReportsTraceTargetFailures(t *testing.T) {
+	badBodyTarget := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintln(w, "ip=127.0.0.1")
+	}))
+	defer badBodyTarget.Close()
+
+	ok, _, err := proxyConnectivityCheckTargets(
+		t.Context(),
+		&http.Client{Timeout: time.Second},
+		[]string{badBodyTarget.URL},
+	)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if ok {
+		t.Fatal("expected ok=false for trace response without colo")
+	}
+	if !strings.Contains(err.Error(), "no colo") {
+		t.Fatalf("error = %q, want no colo context", err)
 	}
 }
