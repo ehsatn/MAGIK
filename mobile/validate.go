@@ -3,6 +3,7 @@ package mobile
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
@@ -142,13 +143,19 @@ func mobileValidateOnce(ctx context.Context, cfg *xraytest.VLESSConfig, timeout 
 		return res
 	}
 
-	proxyURL := fmt.Sprintf("socks5://127.0.0.1:%d", socksPort)
+	// socks5h resolves hostnames through the proxy — required on cellular where
+	// local DNS is blocked but the VLESS tunnel still works.
+	proxyURL := fmt.Sprintf("socks5h://127.0.0.1:%d", socksPort)
 
-	testCtx, cancel := context.WithTimeout(ctx, timeout)
+	connectTimeout := timeout
+	if connectTimeout > 18*time.Second {
+		connectTimeout = 18 * time.Second
+	}
+	testCtx, cancel := context.WithTimeout(ctx, connectTimeout)
 	defer cancel()
 
 	// Step 1: connectivity check via cloudflare trace.
-	traceOk, latency, traceErr := mobileConnectivityCheck(testCtx, proxyURL)
+	traceOk, latency, traceErr := mobileConnectivityCheck(testCtx, proxyURL, cfg)
 	res.Latency = latency
 	if !traceOk {
 		res.Error = fmt.Sprintf("connectivity: %v", traceErr)
@@ -156,7 +163,7 @@ func mobileValidateOnce(ctx context.Context, cfg *xraytest.VLESSConfig, timeout 
 	}
 
 	// Step 2: best-effort speed measurement (does not affect Success).
-	speedCtx, speedCancel := context.WithTimeout(testCtx, mobileSpeedBudget(timeout, latency))
+	speedCtx, speedCancel := context.WithTimeout(ctx, mobileSpeedBudget(timeout, latency))
 	defer speedCancel()
 	bytesRecv, throughput := mobileSpeedTest(speedCtx, proxyURL, cfg)
 	res.BytesRecv = bytesRecv
@@ -183,14 +190,40 @@ func mobileWaitForPort(port int, timeout time.Duration) bool {
 }
 
 func mobileProxyTransport(proxyAddr string) *http.Transport {
-	return &http.Transport{
-		Proxy: func(req *http.Request) (*url.URL, error) {
-			return url.Parse(proxyAddr)
-		},
+	return mobileProxyTransportForTarget(proxyAddr, "", "")
+}
+
+// mobileProxyTransportForTarget builds a SOCKS transport. When the probe URL
+// dials a literal IP but the HTTP authority is a domain (typical CF IP scans),
+// TLS must use the domain as ServerName — req.Host alone does not fix the
+// ClientHello.
+func mobileProxyTransportForTarget(proxyAddr, targetURL, authority string) *http.Transport {
+	t := &http.Transport{
 		DialContext:         (&net.Dialer{Timeout: 10 * time.Second}).DialContext,
 		TLSHandshakeTimeout: 10 * time.Second,
 		DisableKeepAlives:   true,
 	}
+	if proxyAddr != "" {
+		t.Proxy = func(req *http.Request) (*url.URL, error) {
+			return url.Parse(proxyAddr)
+		}
+	}
+	if authority == "" || targetURL == "" {
+		return t
+	}
+	u, err := url.Parse(targetURL)
+	if err != nil || u.Scheme != "https" {
+		return t
+	}
+	if net.ParseIP(u.Hostname()) == nil {
+		return t
+	}
+	serverName := authority
+	if h, _, err := net.SplitHostPort(authority); err == nil {
+		serverName = h
+	}
+	t.TLSClientConfig = &tls.Config{ServerName: serverName}
+	return t
 }
 
 func mobileClientTimeout(ctx context.Context, fallback time.Duration) time.Duration {
@@ -204,17 +237,155 @@ func mobileClientTimeout(ctx context.Context, fallback time.Duration) time.Durat
 	return fallback
 }
 
-func mobileConnectivityCheck(ctx context.Context, proxyAddr string) (bool, time.Duration, error) {
-	transport := mobileProxyTransport(proxyAddr)
-	client := &http.Client{
-		Transport: transport,
-		Timeout:   mobileClientTimeout(ctx, 15*time.Second),
-	}
+// ---------------------------------------------------------------------------
+// Connectivity check
+// ---------------------------------------------------------------------------
 
-	return mobileConnectivityCheckTargets(ctx, client, mobileTraceURLs)
+type mobileTraceTarget struct {
+	url  string
+	host string // HTTP Host / authority when url dials the CF IP directly
 }
 
-func mobileConnectivityCheckTargets(ctx context.Context, client *http.Client, targets []string) (bool, time.Duration, error) {
+// mobileTraceTargetsForConfig builds connectivity probe URLs. The IP-based
+// target matches Phase 1 (no DNS lookup) and is tried first — critical on
+// cellular where UDP DNS to 1.1.1.1 is often blocked but the VLESS tunnel works.
+func mobileTraceTargetsForConfig(cfg *xraytest.VLESSConfig) []mobileTraceTarget {
+	var targets []mobileTraceTarget
+	seen := make(map[string]struct{})
+	add := func(url, host string) {
+		if url == "" {
+			return
+		}
+		key := url + "|" + host
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		targets = append(targets, mobileTraceTarget{url: url, host: host})
+	}
+
+	if cfg != nil && cfg.Address != "" {
+		host := cfg.Host
+		if host == "" {
+			host = cfg.SNI
+		}
+		if host != "" {
+			port := cfg.Port
+			if port <= 0 {
+				port = 443
+			}
+			scheme := "https"
+			if port == 80 {
+				scheme = "http"
+			}
+			add(fmt.Sprintf("%s://%s:%d/cdn-cgi/trace", scheme, cfg.Address, port), host)
+			add(fmt.Sprintf("%s://%s:%d/cdn-cgi/trace", scheme, host, port), "")
+		}
+	}
+
+	for _, u := range mobileTraceURLs {
+		add(u, "")
+	}
+	return targets
+}
+
+func mobileTunnelPathTargets(cfg *xraytest.VLESSConfig) []mobileTraceTarget {
+	if cfg == nil || cfg.Address == "" {
+		return nil
+	}
+	host := cfg.Host
+	if host == "" {
+		host = cfg.SNI
+	}
+	if host == "" {
+		return nil
+	}
+	path := cfg.Path
+	if path == "" {
+		path = "/"
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	port := cfg.Port
+	if port <= 0 {
+		port = 443
+	}
+	scheme := "https"
+	if port == 80 {
+		scheme = "http"
+	}
+	return []mobileTraceTarget{{
+		url:  fmt.Sprintf("%s://%s:%d%s", scheme, cfg.Address, port, path),
+		host: host,
+	}}
+}
+
+func mobileConnectivityCheck(ctx context.Context, proxyAddr string, cfg *xraytest.VLESSConfig) (bool, time.Duration, error) {
+	// Domain-first: SOCKS traffic uses natural TLS SNI and the worker forwards it.
+	if cfg != nil {
+		host := cfg.Host
+		if host == "" {
+			host = cfg.SNI
+		}
+		if host != "" {
+			domainTrace := "https://" + host + "/cdn-cgi/trace"
+			if ok, latency, err := mobileConnectivityCheckTarget(ctx, proxyAddr, domainTrace, ""); ok {
+				return true, latency, nil
+			} else if err != nil {
+				_ = err
+			}
+			if cfg.Path != "" {
+				path := cfg.Path
+				if !strings.HasPrefix(path, "/") {
+					path = "/" + path
+				}
+				domainPath := "https://" + host + path
+				if ok, latency, err := mobileProxyRelaxedEndpointCheck(ctx, proxyAddr, domainPath, "", 1); ok {
+					return true, latency, nil
+				} else if err != nil {
+					_ = err
+				}
+			}
+		}
+	}
+
+	// Then hit the WS path through the CF IP (TLS SNI overridden in transport).
+	if cfg != nil {
+		if ok, latency, err := mobileProxyTunnelPathCheck(ctx, proxyAddr, cfg); ok {
+			return true, latency, nil
+		} else if err != nil {
+			_ = err
+		}
+	}
+
+	targets := mobileTraceTargetsForConfig(cfg)
+	ok, latency, err := mobileConnectivityCheckTargets(ctx, proxyAddr, targets)
+	if ok {
+		return true, latency, nil
+	}
+
+	// Fallback: a small download through the config host/path proves the tunnel
+	// carries data even when trace endpoints are filtered on cellular links.
+	if cfg != nil {
+		if ok, dlLatency, dlErr := mobileProxyDataPathCheck(ctx, proxyAddr, cfg); ok {
+			if dlLatency > 0 {
+				return true, dlLatency, nil
+			}
+			return true, latency, nil
+		} else if dlErr != nil {
+			if err != nil {
+				err = fmt.Errorf("%v; data-path: %v", err, dlErr)
+			} else {
+				err = dlErr
+			}
+		}
+	}
+
+	return false, latency, err
+}
+
+func mobileConnectivityCheckTargets(ctx context.Context, proxyAddr string, targets []mobileTraceTarget) (bool, time.Duration, error) {
 	if len(targets) == 0 {
 		return false, 0, fmt.Errorf("no trace probe targets configured")
 	}
@@ -222,7 +393,7 @@ func mobileConnectivityCheckTargets(ctx context.Context, client *http.Client, ta
 	var failures []string
 	var lastLatency time.Duration
 	for _, target := range targets {
-		ok, latency, err := mobileConnectivityCheckTarget(ctx, client, target)
+		ok, latency, err := mobileConnectivityCheckTarget(ctx, proxyAddr, target.url, target.host)
 		if ok {
 			return true, latency, nil
 		}
@@ -230,7 +401,11 @@ func mobileConnectivityCheckTargets(ctx context.Context, client *http.Client, ta
 			lastLatency = latency
 		}
 		if err != nil {
-			failures = append(failures, fmt.Sprintf("%s: %v", target, err))
+			label := target.url
+			if target.host != "" {
+				label = fmt.Sprintf("%s (host=%s)", target.url, target.host)
+			}
+			failures = append(failures, fmt.Sprintf("%s: %v", label, err))
 		}
 		if ctx.Err() != nil {
 			return false, lastLatency, ctx.Err()
@@ -240,7 +415,7 @@ func mobileConnectivityCheckTargets(ctx context.Context, client *http.Client, ta
 	return false, lastLatency, fmt.Errorf("trace probe failed: %s", strings.Join(failures, "; "))
 }
 
-func mobileConnectivityCheckTarget(ctx context.Context, client *http.Client, target string) (bool, time.Duration, error) {
+func mobileConnectivityCheckTarget(ctx context.Context, proxyAddr, target, authority string) (bool, time.Duration, error) {
 	start := time.Now()
 	var latency time.Duration
 	gotFirst := false
@@ -254,11 +429,19 @@ func mobileConnectivityCheckTarget(ctx context.Context, client *http.Client, tar
 	}
 	traceCtx := httptrace.WithClientTrace(ctx, trace)
 
+	client := &http.Client{
+		Transport: mobileProxyTransportForTarget(proxyAddr, target, authority),
+		Timeout:   mobileClientTimeout(ctx, 20*time.Second),
+	}
+
 	req, err := http.NewRequestWithContext(traceCtx, http.MethodGet, target, nil)
 	if err != nil {
 		return false, 0, err
 	}
 	req.Header.Set("User-Agent", "senpaiscanner/1.0")
+	if authority != "" {
+		req.Host = authority
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -266,7 +449,7 @@ func mobileConnectivityCheckTarget(ctx context.Context, client *http.Client, tar
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
 		return false, latency, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
@@ -280,27 +463,111 @@ func mobileConnectivityCheckTarget(ctx context.Context, client *http.Client, tar
 	return true, latency, nil
 }
 
-func mobileSpeedBudget(total, spent time.Duration) time.Duration {
-	budget := total / 2
-	if budget < 8*time.Second {
-		budget = 8 * time.Second
+func mobileProxyTunnelPathCheck(ctx context.Context, proxyAddr string, cfg *xraytest.VLESSConfig) (bool, time.Duration, error) {
+	for _, target := range mobileTunnelPathTargets(cfg) {
+		ok, latency, err := mobileProxyRelaxedEndpointCheck(ctx, proxyAddr, target.url, target.host, 1)
+		if ok {
+			return true, latency, nil
+		}
+		if err != nil {
+			return false, latency, err
+		}
 	}
+	return false, 0, fmt.Errorf("tunnel path unreachable")
+}
+
+func mobileProxyRelaxedEndpointCheck(ctx context.Context, proxyAddr, targetURL, authority string, minBytes int64) (bool, time.Duration, error) {
+	start := time.Now()
+	var latency time.Duration
+	gotFirst := false
+	trace := &httptrace.ClientTrace{
+		GotFirstResponseByte: func() {
+			if !gotFirst {
+				latency = time.Since(start)
+				gotFirst = true
+			}
+		},
+	}
+	traceCtx := httptrace.WithClientTrace(ctx, trace)
+
+	client := &http.Client{
+		Transport: mobileProxyTransportForTarget(proxyAddr, targetURL, authority),
+		Timeout:   mobileClientTimeout(ctx, 20*time.Second),
+	}
+	req, err := http.NewRequestWithContext(traceCtx, http.MethodGet, targetURL, nil)
+	if err != nil {
+		return false, 0, err
+	}
+	req.Header.Set("User-Agent", "senpaiscanner/1.0")
+	if authority != "" {
+		req.Host = authority
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, latency, err
+	}
+	n, _ := io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	status := resp.StatusCode
+	resp.Body.Close()
+	if status >= 500 {
+		return false, latency, fmt.Errorf("HTTP %d", status)
+	}
+	if n < minBytes {
+		return false, latency, fmt.Errorf("short response (%d bytes)", n)
+	}
+	if !gotFirst {
+		latency = time.Since(start)
+	}
+	return true, latency, nil
+}
+
+func mobileProxyDataPathCheck(ctx context.Context, proxyAddr string, cfg *xraytest.VLESSConfig) (bool, time.Duration, error) {
+	const sample int64 = 16 * 1024
+	for _, target := range mobileTunnelPathTargets(cfg) {
+		ok, latency, _ := mobileProxyRelaxedEndpointCheck(ctx, proxyAddr, target.url, target.host, 8192)
+		if ok {
+			return true, latency, nil
+		}
+	}
+	for _, target := range mobileSpeedTestTargets(cfg, sample) {
+		ok, latency, _ := mobileProxyRelaxedEndpointCheck(ctx, proxyAddr, target.url, target.host, target.minBytes)
+		if ok {
+			return true, latency, nil
+		}
+	}
+	return false, 0, fmt.Errorf("no data-path response")
+}
+
+// ---------------------------------------------------------------------------
+// Speed measurement
+// ---------------------------------------------------------------------------
+
+type mobileSpeedTestTarget struct {
+	url      string
+	host     string // HTTP Host when url dials a CF IP directly
+	relaxed  bool
+	minBytes int64
+}
+
+func mobileSpeedBudget(total, spent time.Duration) time.Duration {
+	budget := 4 * time.Second
 	remaining := total - spent
 	if remaining < budget {
 		budget = remaining
 	}
-	if budget < 2*time.Second {
-		return 2 * time.Second
+	if budget < time.Second {
+		return time.Second
 	}
 	return budget
 }
 
-func mobileDownload(ctx context.Context, proxyAddr, dlURL string, maxBytes int64, relaxed bool) (int64, float64, error) {
+func mobileDownload(ctx context.Context, proxyAddr, dlURL string, maxBytes int64, relaxed bool, authority string) (int64, float64, error) {
 	if maxBytes <= 0 {
 		return 0, 0, fmt.Errorf("invalid maxBytes %d", maxBytes)
 	}
 	client := &http.Client{
-		Transport: mobileProxyTransport(proxyAddr),
+		Transport: mobileProxyTransportForTarget(proxyAddr, dlURL, authority),
 		Timeout:   mobileClientTimeout(ctx, 30*time.Second),
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, dlURL, nil)
@@ -308,6 +575,9 @@ func mobileDownload(ctx context.Context, proxyAddr, dlURL string, maxBytes int64
 		return 0, 0, err
 	}
 	req.Header.Set("User-Agent", "senpaiscanner/1.0")
+	if authority != "" {
+		req.Host = authority
+	}
 
 	start := time.Now()
 	resp, err := client.Do(req)
@@ -331,36 +601,83 @@ func mobileDownload(ctx context.Context, proxyAddr, dlURL string, maxBytes int64
 	return n, float64(n) / elapsed, nil
 }
 
-func mobileSpeedTest(ctx context.Context, proxyAddr string, cfg *xraytest.VLESSConfig) (int64, float64) {
-	const sampleBytes int64 = 128 * 1024
-	const minBytes int64 = 8 * 1024
-
-	// Try speed.cloudflare.com first.
-	dlURL := fmt.Sprintf("https://speed.cloudflare.com/__down?bytes=%d", sampleBytes)
-	bytesRecv, throughput, err := mobileDownload(ctx, proxyAddr, dlURL, sampleBytes, false)
-	if err == nil && bytesRecv >= minBytes && throughput > 0 {
-		return bytesRecv, throughput
+func mobileSpeedTestTargets(cfg *xraytest.VLESSConfig, sampleBytes int64) []mobileSpeedTestTarget {
+	minBytes := int64(8 * 1024)
+	if sampleBytes < minBytes {
+		minBytes = sampleBytes / 2
+	}
+	if minBytes < 4096 {
+		minBytes = 4096
 	}
 
-	// Fallback: host-based download through the config's host/path.
+	var targets []mobileSpeedTestTarget
+	add := func(url, host string, relaxed bool) {
+		if url == "" {
+			return
+		}
+		targets = append(targets, mobileSpeedTestTarget{
+			url:      url,
+			host:     host,
+			relaxed:  relaxed,
+			minBytes: minBytes,
+		})
+	}
+
 	if cfg != nil {
 		host := cfg.Host
 		if host == "" {
 			host = cfg.SNI
 		}
+		port := cfg.Port
+		if port <= 0 {
+			port = 443
+		}
+		scheme := "https"
+		if port == 80 {
+			scheme = "http"
+		}
 		if host != "" {
-			fallbackURL := "https://" + host + "/"
+			paths := []string{"/"}
 			if cfg.Path != "" {
-				p := cfg.Path
-				if !strings.HasPrefix(p, "/") {
-					p = "/" + p
+				paths = append([]string{cfg.Path}, paths...)
+			}
+			seen := make(map[string]struct{})
+			for _, path := range paths {
+				if !strings.HasPrefix(path, "/") {
+					path = "/" + path
 				}
-				fallbackURL = "https://" + host + p
+				if cfg.Address != "" {
+					ipURL := fmt.Sprintf("%s://%s:%d%s", scheme, cfg.Address, port, path)
+					if _, ok := seen[ipURL]; !ok {
+						seen[ipURL] = struct{}{}
+						targets = append(targets, mobileSpeedTestTarget{
+							url: ipURL, host: host, relaxed: true, minBytes: minBytes,
+						})
+					}
+				}
+				u := "https://" + host + path
+				if _, ok := seen[u]; ok {
+					continue
+				}
+				seen[u] = struct{}{}
+				add(u, "", true)
 			}
-			bytesRecv, throughput, err = mobileDownload(ctx, proxyAddr, fallbackURL, sampleBytes, true)
-			if err == nil && bytesRecv >= minBytes && throughput > 0 {
-				return bytesRecv, throughput
-			}
+		}
+	}
+
+	add(fmt.Sprintf("https://speed.cloudflare.com/__down?bytes=%d", sampleBytes), "", false)
+	add("https://www.cloudflare.com/", "", true)
+	return targets
+}
+
+func mobileSpeedTest(ctx context.Context, proxyAddr string, cfg *xraytest.VLESSConfig) (int64, float64) {
+	const sampleBytes int64 = 128 * 1024
+	const minBytes int64 = 8 * 1024
+
+	for _, target := range mobileSpeedTestTargets(cfg, sampleBytes) {
+		bytesRecv, throughput, err := mobileDownload(ctx, proxyAddr, target.url, sampleBytes, target.relaxed, target.host)
+		if err == nil && bytesRecv >= minBytes && throughput > 0 {
+			return bytesRecv, throughput
 		}
 	}
 
@@ -385,7 +702,7 @@ func mobileBurstThroughput(ctx context.Context, proxyAddr, targetURL string, tar
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				n, _, err := mobileDownload(ctx, proxyAddr, targetURL, 16384, true)
+				n, _, err := mobileDownload(ctx, proxyAddr, targetURL, 16384, true, "")
 				if err != nil || n <= 0 {
 					return
 				}
