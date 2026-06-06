@@ -3200,7 +3200,7 @@ func (m AppModel) resolveMinSpeed() float64 {
 
 func (m AppModel) resolveSpeedSize() int64 {
 	if m.configSpeedSizeIdx == len(configSpeedSizeLabels)-1 {
-		n, _ := strconv.ParseInt(strings.TrimSpace(m.configSpeedSizeCustom), 10)
+		n, _ := strconv.ParseInt(strings.TrimSpace(m.configSpeedSizeCustom), 10, 64)
 		if n <= 0 {
 			return 512 * 1024
 		}
