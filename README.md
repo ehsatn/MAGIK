@@ -12,6 +12,16 @@ A Cloudflare IP finder with a terminal UI and an Android app, built for networks
 
 ---
 
+## Features
+
+*   **Cloudflare IP Scanning**: Quickly finds working Cloudflare IPs.
+*   **Terminal UI (TUI)**: Interactive menu-driven interface, no complex CLI flags.
+*   **Multi-Platform**: Linux, macOS, Windows, Android (APK & Termux).
+*   **Proxy Validation**: End-to-end testing of IPs using VLESS/Trojan configurations (via embedded Xray).
+*   **Neighbor Scan**: Explores nearby IPs in the same Cloudflare block for more hits.
+*   **Persistency**: Saves last scan settings automatically.
+*   **Clipboard & File Output**: Copy working IPs to clipboard and save to `ips.txt`.
+
 ## How it works
 
 Run `senpaiscanner` and you land in a short menu. Navigate with arrow keys and Enter — no scan-related CLI flags.
@@ -27,8 +37,8 @@ Run `senpaiscanner` and you land in a short menu. Navigate with arrow keys and E
 
 **Find Working IPs** can run in one or two phases:
 
-1. **Phase 1 — Connectivity scan** probes candidate Cloudflare IPs. Without a config URL it uses a standard HTTP probe; with a URL it derives SNI, host, WebSocket path, and port from your link. In **Random** mode, healthy hits also trigger a **neighbor scan** — nearby addresses in the same Cloudflare block are explored automatically.
-2. **Phase 2 — xray validation** (optional) launches an embedded xray instance and tests the best Phase 1 hits end-to-end through your actual VLESS/Trojan config. Results show endpoint, transport type, download speed, latency (TTFB), and pass/fail status.
+1.  **Phase 1 — Connectivity scan** probes candidate Cloudflare IPs. Without a config URL it uses a standard HTTP probe; with a URL it derives SNI, host, WebSocket path, and port from your link. SenPai Scanner intelligently parses your VLESS or Trojan configuration URL. In **Random** mode, healthy hits also trigger a **neighbor scan** — nearby addresses in the same Cloudflare block are explored automatically.
+2.  **Phase 2 — xray validation** (optional) launches an embedded xray instance and tests the best Phase 1 hits end-to-end through your actual VLESS/Trojan config. Results show endpoint, transport type, download speed, latency (TTFB), and pass/fail status.
 
 Press **`c`** when a scan finishes to copy working `IP:port` endpoints to the clipboard and save them to `ips.txt` next to the binary (or current working directory).
 
@@ -118,297 +128,36 @@ senpaiscanner
 | Topic | Notes |
 |---|---|
 | **Navigation** | Arrow keys on the on-screen keyboard, or a Bluetooth keyboard. `k` / `j` / `h` / `l` also work in menus. |
-| **Paste config URL** | Long-press in Termux → Paste, or `termux-clipboard-get` if `termux-api` is installed. |
-| **Clipboard (`c` key)** | May not work in all Termux setups. Results are always saved to `ips.txt` in the current directory when copy runs — use that file if clipboard fails. |
+| **Paste config URL** | Long-press in Termux → Paste, or `termux-clipboard-get` if `termux-api` is installed. *For reliable clipboard access, ensure `pkg install termux-api` is run and permissions are granted.* |
+| **Clipboard (`c` key)** | May not work in all Termux setups by default. Results are always saved to `ips.txt` in the current directory when copy runs — use that file if clipboard fails. |
 | **`ips.txt` / live results** | Keep files in `~/` (e.g. `cd ~` before starting). Paths shown in the TUI are relative to the working directory. |
 | **Config file** | `~/.config/senpaiscanner/config.json` — powers **Retry Last Scan**. |
 | **Long scans** | Optional: `termux-wake-lock` (from `pkg install termux-api`) to reduce the screen turning off mid-scan. |
-| **Update** | Re-run the `install.sh` one-liner; it upgrades when a newer release is available. |
-
-**Manual install** (without the script):
-
-```bash
-curl -fsSL -o "$PREFIX/bin/senpaiscanner" \
-  https://github.com/matinsenpai/senpaiscanner/releases/latest/download/senpaiscanner-linux-arm64
-chmod +x "$PREFIX/bin/senpaiscanner"
-senpaiscanner
-```
-
-Prefer the **native APK** (above) if you want a touch UI without the terminal. Use **Termux** if you want the full desktop TUI and live results file on your phone.
-
-### From source
-
-```bash
-go install github.com/matinsenpai/senpaiscanner/cmd/senpaiscanner@latest
-```
+| **Update** | Re-run the `install.sh` one-liner; it upgrades to the latest stable release. |
 
 ---
 
-## Usage
-
-```bash
-senpaiscanner              # open the TUI
-senpaiscanner --version    # print version and exit
-senpaiscanner -v           # same
-senpaiscanner version      # same
-```
-
-Everything else is inside the TUI or Android app — there are no scan-related CLI flags.
-
-### Navigation (desktop TUI)
-
-| Key | Action |
-|-----|--------|
-| `↑` / `↓` or `k` / `j` | move between rows |
-| `←` / `→` or `h` / `l` | move between options within a row |
-| `Enter` | select / confirm / start |
-| `Esc` | go back |
-| `q` | quit from menu; during a scan, cancel or return to menu when finished |
-
-On the **Config URL** row, `←` / `→` move the text cursor; `Ctrl+A` / `Ctrl+E` jump to start / end. Vim keys `h` / `j` / `k` / `l` type normally into the URL field on that row.
-
----
-
-## Find Working IPs (desktop)
-
-### Step 1 — Scan setup
-
-| Row | Options | Notes |
-|---|---|---|
-| **Source** | Random / From File | random Cloudflare IPv4 ranges, or candidates from `ips.txt` |
-| **Count** | 1,000 / 5,000 / 20,000 / Custom | IPs to probe in Phase 1 (Random); caps how many entries from `ips.txt` are used (From File) |
-| **Workers** | 50 / 100 / 200 / Custom | parallel probers (default 50 — safe on restricted networks) |
-| **Timeout** | 2s / 3s / 5s / Custom | per-probe deadline (default 5s) |
-| **Ports** | Config, 443, 8443, 2053, 2083, 2087, 2096 | multi-select; each IP is tested on every selected port |
-
-Press **Enter** on **Ports** to continue to the optional config step.
-
-**Ports row:** use `←` / `→` to focus a port pill, then **`Space`** or **`Enter`** to toggle it. Select **Config** alone to use the port from your URL. Selecting multiple ports multiplies Phase 1 work (IPs × ports).
-
-### Step 2 — Optional config
-
-| Row | Options | Notes |
-|---|---|---|
-| **Config** | paste URL or leave empty | empty → **Phase 1 only**; with URL → Phase 1 + Phase 2 |
-| **Top N** | 10 / 25 / 50 / 100 / All / Custom | how many Phase 1 hits to validate in Phase 2 (only when a config URL is set) |
-
-Supported share links: **`vless://`** and **`trojan://`**. Parsing accepts common real-world quirks — case-insensitive schemes, missing `?` after the port, IPv6 hosts in brackets, and URL-encoded Trojan passwords.
-
-**Enter** with an empty config field starts a connectivity-only scan. Paste a URL, set **Top N**, then **Enter** again to run full validation.
-
-Invalid URLs show an inline warning and keep focus on the Config row.
-
-### Persistent settings & Retry Last Scan
-
-Every scan start saves your current setup (source, count, workers, timeout, ports, config URL, Top N) to a config file:
-
-| Platform | Path |
-|---|---|
-| Windows | `%AppData%\senpaiscanner\config.json` |
-| macOS | `~/Library/Application Support/senpaiscanner/config.json` |
-| Linux | `~/.config/senpaiscanner/config.json` |
-
-The home screen shows this path. **Retry Last Scan** loads the saved values and starts immediately — useful for overnight re-runs or after tweaking `ips.txt`.
-
-### Live results file
-
-During a scan the UI shows `live results → SenPaiScannerResult-YYYYMMDD-HHMMSS.txt` beside the binary or in the working directory.
-
-- The file is **not created until the first healthy Phase 1 result** — no empty placeholder files.
-- It is rewritten on each update so you can tail it in any editor while the scan runs.
-- Sections: scan plan, Phase 1 table (healthy hits), Phase 2 table (when applicable).
-
-### Phase 1 — Finding reachable IPs
-
-| Mode | Probe behaviour |
-|---|---|
-| **No config URL** | Standard Cloudflare HTTP probe (`speed.cloudflare.com`, 64 KiB sample) |
-| **With config URL** | SNI / host / path from your link; WebSocket upgrade required when `type=ws` |
-
-**Random source only:** when a healthy IP is found, the scanner also probes nearby addresses in the same Cloudflare block (±1, ±2, … up to radius 32). Defaults: up to 12 neighbors per hit, 400 extra IPs total across the scan. This is automatic — no UI toggle.
-
-The live table shows the top 20 results: **ENDPOINT**, **LOSS**, **AVG(ms)**, **COLO**, **STATUS** (✓/✗). Progress **target** = Count × selected ports (or capped `ips.txt` entries × ports).
-
-Press `q` / `Esc` to cancel. When Phase 1-only finishes, press **`c`** to copy healthy endpoints.
-
-### Phase 2 — xray validation
-
-The top Phase 1 candidates (by average latency) are tested through embedded xray with your config:
-
-| Column | Meaning |
-|---|---|
-| **ENDPOINT** | `IP:port` that was validated |
-| **TYPE** | transport (`ws`, `grpc`, `xhttp`, …) |
-| **SPEED** | measured download throughput in Mbps, or `n/a` if speed could not be measured |
-| **LATENCY** | time to first byte through the proxy (TTFB) |
-| **STATUS** | ✓ working / ✗ failed |
-
-Connectivity is checked via Cloudflare `/cdn-cgi/trace` (`cp.cloudflare.com` first, then `cloudflare.com` as fallback). Speed measurement is best-effort; an endpoint can pass with SPEED `n/a`. Each candidate gets one automatic retry on failure.
-
-| Key | Action |
-|-----|--------|
-| `c` | copy working endpoints to clipboard **and** save to `ips.txt` |
-| `q` / `Esc` | return to the main menu |
-
-Exported lines look like `104.16.72.162:443` — ready to paste into client configs or DNS/IP lists.
-
-### About
-
-Version string and short project blurb; `Enter` / `q` / `Esc` back to the menu.
-
----
-
-## `ips.txt` format (From File)
-
-Place `ips.txt` next to the executable or in the directory you run from. The scanner searches the working directory first, then the binary directory.
-
-| Line type | Example | Behaviour |
-|---|---|---|
-| Plain IPv4 | `104.16.72.162` | Loaded |
-| CSV | `104.16.72.162,note` | First column used |
-| Comment / blank | `# my list` | Skipped |
-| Small CIDR (≤256 hosts) | `104.16.72.160/29` | Fully expanded |
-| Large CIDR | `104.16.0.0/16` | Random sample of up to **256** unique IPs |
-| Invalid CIDR | `not-a-cidr/99` | Scan aborts with an error |
-
-IPv6 lines are ignored. The **Count** row caps how many loaded IPs are actually probed when using From File.
-
-**Workflow tip:** run a Random scan, press **`c`** to save working endpoints to `ips.txt`, then re-run with **From File** to validate your shortlist on more ports.
-
----
-
-## Android app
-
-The Android build shares the same probe engine and xray validation logic via a Go mobile bridge (`mobile/` + `gomobile bind`).
-
-### UI overview
-
-| Area | Features |
-|---|---|
-| **Home** | Stat cards (Tested, In-Flight, Healthy, Failed); discovered IP list; per-IP copy; bulk copy buttons for Phase 1 / Phase 2 results |
-| **Settings** | Source (Random / From File + file picker), Count, Workers, Timeout, Ports, Config URL, Top N |
-| **FAB** | START SCAN / STOP SCAN |
-| **Info** | App description, version, GitHub and Telegram links |
-
-### Android vs desktop
-
-| Feature | Desktop TUI | Android |
-|---|---|---|
-| Persistent config + Retry Last Scan | ✓ | — (in-memory for session) |
-| Live results file | ✓ | — |
-| Optional config as separate screen | ✓ | Config URL in Settings |
-| Phase 1 only (no config URL) | ✓ | ✓ (leave Config URL empty) |
-| Neighbor scan (Random) | ✓ | ✓ |
-| CIDR lines in `ips.txt` | ✓ | plain IPs only |
-| Copy to `ips.txt` on device | ✓ | clipboard only |
-
-Phase 2 runs only when a Config URL is set. xray validation on Android uses a JNI-safe code path (no stdio redirection) to avoid terminal deadlocks seen on desktop builds.
-
----
-
-## Tips for restricted networks
-
-**Start with defaults.** 5,000 random IPs, 50 workers, 5s timeout, and port 443 (or your config port) are a good baseline on lossy or filtered lines.
-
-**Use From File after a partial run.** Copy working endpoints with `c`, edit `ips.txt`, then re-run with **Source → From File** to validate only your shortlist on more ports. You can paste CIDR blocks to sample a subnet.
-
-**Try multiple ports.** Cloudflare CDN ports (443, 8443, 2053, …) behave differently under DPI. Multi-port selection lets Phase 1 find the best `IP:port` pair before xray validation.
-
-**Let neighbor scan work.** In Random mode you do not need to raise Count to explore a dense block — healthy hits automatically queue nearby addresses.
-
-**WebSocket configs need WS-friendly IPs.** Phase 1 runs an idle TLS hold plus a WebSocket upgrade check when your URL uses `type=ws`. An IP that passes trace but fails WS will not become a Phase 2 candidate.
-
-**0% loss alone is not enough.** For HTTP-style probing, non-zero download throughput or a successful WS check is required for an IP to count as healthy.
-
-**Speed in Phase 2 is best-effort.** Connectivity is confirmed via trace (with fallback hosts). Download speed is measured when possible. If speed cannot be measured reliably, the endpoint can still show ✓ with SPEED `n/a`.
-
----
-
-## FAQ
-
-**Why doesn't it just run a ping?**
-Cloudflare drops ICMP on their edge IPs. SenPai Scanner validates HTTP/TLS behaviour and, for proxy configs, runs traffic through xray — closer to real VLESS/Trojan usage than ping or bare TCP.
-
-**How is this different from warp-plus?**
-SenPai Scanner does not run a permanent proxy. It finds and validates Cloudflare IPs for **your** xray config and exports `IP:port` lists you can plug into Sing-Box, v2rayN, etc.
-
-**Where do the IP ranges come from?**
-Embedded from Cloudflare's official published lists (`cloudflare.com/ips-v4`, `cloudflare.com/ips-v6`). The binary ships with a snapshot; ranges rarely change.
-
-**"ips.txt not found" when using From File**
-Place `ips.txt` next to the executable or in your current working directory before starting.
-
-**The scan feels slow with many ports selected**
-Each selected port is probed for every IP. Testing 5 ports on 5,000 IPs means 25,000 probes in Phase 1 — lower Count or narrow the port list if needed.
-
-**Why is tested count higher than my Count setting?**
-In Random mode, neighbor scan adds extra probes around healthy hits (up to 400 total). This is intentional.
-
-**What happened to Quick Scan, Custom Scan, Test IPs, and Discover Colos?**
-Those separate menu flows were removed to focus on one workflow: find working endpoints, optionally validate through xray, export results. The core probe engine powers **Find Working IPs** and the Android app.
-
----
-
-## Building from source
-
-### Desktop
-
-```bash
-git clone https://github.com/matinsenpai/senpaiscanner.git
-cd senpaiscanner
-make build          # current platform
-make build-all      # all platforms → dist/
-make test
-make install        # to $GOPATH/bin
-```
-
-**Windows (cross-compile all platforms):**
-
-```powershell
-powershell -ExecutionPolicy Bypass -File build.ps1
-# optional: -Version "0.6.0"
-```
-
-Binaries land in `dist/`.
-
-Tagged pushes (`v*`) trigger [GoReleaser](https://goreleaser.com/) via GitHub Actions to publish multi-platform archives and checksums.
-
-### Android
-
-```bash
-# 1. Build the Go mobile library (creates android/app/libs/senpaiscanner.aar)
-cd android
-./build_go_mobile.sh          # Linux / macOS
-build_go_mobile.bat           # Windows
-
-# 2. Build debug or release APK
-./gradlew :app:assembleDebug
-./gradlew :app:assembleRelease   # requires signing keystore for release
-```
-
-Release CI builds signed APKs automatically and attaches them to the GitHub release when you push a version tag.
+## Troubleshooting / FAQ
+
+*   **"Invalid URL error" or scan failures with a valid config**: Ensure your VLESS/Trojan configuration URL is correctly formatted and accessible. Check for typos. If the issue persists, the target server or Xray setup might be rejecting the connection. Consider testing the URL with a standalone Xray client first.
+*   **Scanner gets stuck or crashes**: This can be due to high network latency, an unstable internet connection, or an issue with the Cloudflare IPs being probed. Try restarting the scan, or if persistent, check your system's resource usage. If it's a bug, please [open an issue](https://github.com/MatinSenPai/SenPaiScanner/issues/new/choose) with details.
+*   **No IPs found**: If the scan completes but finds no working IPs, it's possible that all probed IPs are blocked or unavailable in your region, or your network conditions are too poor for successful probes. Try scanning at a different time or from a different network.
+*   **Clipboard not working in Termux**: As noted in the Termux tips, you might need to install `termux-api` (`pkg install termux-api`) and grant necessary permissions. If it still fails, rely on `ips.txt` for your results.
+*   **Slow download speeds/high latency from found IPs**: The scanner validates connectivity and basic speed, but real-world performance can vary greatly based on network congestion, server load, and geographical distance.
 
 ---
 
 ## Contributing
 
-See **[CONTRIBUTING.md](CONTRIBUTING.md)** for project principles, development setup, and pull request guidelines.
+We welcome contributions! If you're interested in helping develop SenPai Scanner, please see our [CONTRIBUTING.md](CONTRIBUTING.md) guide for details on how to set up your development environment, propose changes, report bugs, or suggest new features.
 
-Issues and PRs are welcome. For larger changes, open an issue first to discuss scope.
-
-For bugs, include your OS/arch, version (`senpaiscanner --version`), the screen you were on, and what you expected vs what happened.
-
----
-
-## Roadmap
-
-- Configurable download/upload thresholds for final filtering
-- Persistent settings on Android
-- `Watch` mode for continuous monitoring
-- Export directly to xray/Sing-Box JSON from the results screen
+Ideas for contributions include:
+*   Adding support for more proxy protocols (e.g., Shadowsocks, WireGuard).
+*   Improving the scanning algorithms or UI.
+*   Enhancing the Android app experience.
 
 ---
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+SenPai Scanner is released under the MIT License. See [LICENSE](LICENSE) for more details.
