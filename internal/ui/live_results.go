@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/matinsenpai/senpaiscanner/internal/result"
-	"github.com/matinsenpai/senpaiscanner/internal/xraytest"
+	"github.com/ehsatn/MAGIK/internal/result"
+	"github.com/ehsatn/MAGIK/internal/xraytest"
 )
 
 var liveResultWriter *LiveResultWriter

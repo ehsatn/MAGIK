@@ -308,7 +308,7 @@ func proxyRelaxedEndpointCheck(ctx context.Context, proxyAddr, targetURL, author
 	if err != nil {
 		return false, 0, err
 	}
-	req.Header.Set("User-Agent", "senpaiscanner/1.0")
+	req.Header.Set("User-Agent", "magik/1.0")
 	if authority != "" {
 		req.Host = authority
 	}
@@ -457,7 +457,7 @@ func proxyConnectivityCheckTarget(ctx context.Context, proxyAddr, target, author
 	if err != nil {
 		return false, 0, err
 	}
-	req.Header.Set("User-Agent", "senpaiscanner/1.0")
+	req.Header.Set("User-Agent", "magik/1.0")
 	if authority != "" {
 		req.Host = authority
 	}
@@ -617,7 +617,7 @@ func uploadThroughProxy(ctx context.Context, proxyAddr, uploadURL string, maxByt
 	}
 	req.ContentLength = maxBytes
 	req.Header.Set("Content-Type", "application/octet-stream")
-	req.Header.Set("User-Agent", "senpaiscanner/1.0")
+	req.Header.Set("User-Agent", "magik/1.0")
 	if authority != "" {
 		req.Host = authority
 	}
@@ -835,7 +835,7 @@ func downloadThroughProxy(ctx context.Context, proxyAddr, dlURL string, maxBytes
 	if err != nil {
 		return 0, 0, err
 	}
-	req.Header.Set("User-Agent", "senpaiscanner/1.0")
+	req.Header.Set("User-Agent", "magik/1.0")
 	if authority != "" {
 		req.Host = authority
 	}

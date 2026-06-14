@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matinsenpai/senpaiscanner/internal/result"
+	"github.com/ehsatn/MAGIK/internal/result"
 )
 
 func TestLiveResultFileNameFormat(t *testing.T) {

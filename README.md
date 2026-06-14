@@ -2,13 +2,13 @@
 
 > **Persian / فارسی:** [README.fa.md](README.fa.md)
 
-[![CI](https://github.com/matinsenpai/senpaiscanner/actions/workflows/ci.yml/badge.svg)](https://github.com/matinsenpai/senpaiscanner/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/matinsenpai/senpaiscanner?style=flat-square)](https://github.com/matinsenpai/senpaiscanner/releases/latest)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/matinsenpai/senpaiscanner?style=flat-square)](go.mod)
+[![CI](https://github.com/ehsatn/MAGIK/actions/workflows/ci.yml/badge.svg)](https://github.com/ehsatn/MAGIK/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/ehsatn/MAGIK?style=flat-square)](https://github.com/ehsatn/MAGIK/releases/latest)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/ehsatn/MAGIK?style=flat-square)](go.mod)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 [![Platforms](https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows%20%7C%20android%20%7C%20termux-informational?style=flat-square)](#installation)
 
-<img width="825" height="589" alt="image" src="https://github.com/user-attachments/assets/6558f7b1-bd9d-460a-adf2-d314fe70c48a" />
+MAGIK is a fork of [MatinSenPai/SenPaiScanner](https://github.com/MatinSenPai/SenPaiScanner), renamed and polished with a simpler desktop GUI.
 
 A Cloudflare IP finder with a terminal UI and an Android app, built for networks where latency is unpredictable and connections drop without warning. Probe Cloudflare edge IPs, optionally validate them through your VLESS or Trojan config with embedded xray — no commands to memorize.
 
@@ -53,7 +53,7 @@ Your last scan settings are saved automatically. Use **Retry Last Scan** on the 
 
 ### Desktop — pre-built binary
 
-Download from the [releases page](https://github.com/matinsenpai/senpaiscanner/releases/latest).
+Download from the [releases page](https://github.com/ehsatn/MAGIK/releases/latest).
 
 | Platform | Architecture | File |
 |---|---|---|
@@ -69,16 +69,16 @@ Download from the [releases page](https://github.com/matinsenpai/senpaiscanner/r
 
 ```bash
 # stable release
-curl -fsSL https://github.com/MatinSenPai/SenPaiScanner/raw/refs/heads/main/install.sh | bash
+curl -fsSL https://github.com/ehsatn/MAGIK/raw/refs/heads/main/install.sh | bash
 
 # pre-release
-curl -fsSL https://github.com/MatinSenPai/SenPaiScanner/raw/refs/heads/main/install.sh | bash -s -- --prerelease
+curl -fsSL https://github.com/ehsatn/MAGIK/raw/refs/heads/main/install.sh | bash -s -- --prerelease
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-$r = Invoke-RestMethod https://api.github.com/repos/matinsenpai/senpaiscanner/releases/latest
+$r = Invoke-RestMethod https://api.github.com/repos/ehsatn/MAGIK/releases/latest
 $url = ($r.assets | Where-Object name -eq "magik-windows-amd64.exe").browser_download_url
 Invoke-WebRequest $url -OutFile magik.exe
 ```
@@ -98,6 +98,8 @@ make build-gui-windows-amd64
 ```
 
 Run `magik-gui` and it opens the dark browser-based interface locally.
+
+![MAGIK desktop GUI](docs/assets/magik-gui.png)
 
 ### Android — pre-built APK
 
@@ -125,13 +127,13 @@ pkg install curl tar -y
 **2. Install MAGIK** (auto-detects Termux and installs to `$PREFIX/bin`):
 
 ```bash
-curl -fsSL https://github.com/MatinSenPai/SenPaiScanner/raw/refs/heads/main/install.sh | bash
+curl -fsSL https://github.com/ehsatn/MAGIK/raw/refs/heads/main/install.sh | bash
 ```
 
 Pre-release channel:
 
 ```bash
-curl -fsSL https://github.com/MatinSenPai/SenPaiScanner/raw/refs/heads/main/install.sh | bash -s -- --prerelease
+curl -fsSL https://github.com/ehsatn/MAGIK/raw/refs/heads/main/install.sh | bash -s -- --prerelease
 ```
 
 The installer downloads `magik-linux-arm64` on 64-bit phones. (32-bit ARM devices are uncommon; use the native APK if the Linux binary is unavailable.)
@@ -159,7 +161,7 @@ magik
 ## Troubleshooting / FAQ
 
 *   **"Invalid URL error" or scan failures with a valid config**: Ensure your VLESS/Trojan configuration URL is correctly formatted and accessible. Check for typos. If the issue persists, the target server or Xray setup might be rejecting the connection. Consider testing the URL with a standalone Xray client first.
-*   **Scanner gets stuck or crashes**: This can be due to high network latency, an unstable internet connection, or an issue with the Cloudflare IPs being probed. Try restarting the scan, or if persistent, check your system's resource usage. If it's a bug, please [open an issue](https://github.com/MatinSenPai/SenPaiScanner/issues/new/choose) with details.
+*   **Scanner gets stuck or crashes**: This can be due to high network latency, an unstable internet connection, or an issue with the Cloudflare IPs being probed. Try restarting the scan, or if persistent, check your system's resource usage. If it's a bug, please [open an issue](https://github.com/ehsatn/MAGIK/issues/new/choose) with details.
 *   **No IPs found**: If the scan completes but finds no working IPs, it's possible that all probed IPs are blocked or unavailable in your region, or your network conditions are too poor for successful probes. Try scanning at a different time or from a different network.
 *   **Clipboard not working in Termux**: As noted in the Termux tips, you might need to install `termux-api` (`pkg install termux-api`) and grant necessary permissions. If it still fails, rely on `ips.txt` for your results.
 *   **Slow download speeds/high latency from found IPs**: The scanner validates connectivity and basic speed, but real-world performance can vary greatly based on network congestion, server load, and geographical distance.

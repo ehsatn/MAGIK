@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/matinsenpai/senpaiscanner/internal/xraytest"
+	"github.com/ehsatn/MAGIK/internal/xraytest"
 )
 
 // ProxyConfig represents a parsed proxy share URL that can be validated against

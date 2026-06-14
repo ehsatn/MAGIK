@@ -1,8 +1,8 @@
 BINARY     := magik
 BINARY_GUI := magik-gui
-MODULE     := github.com/matinsenpai/senpaiscanner
-CMD        := ./cmd/senpaiscanner
-GUI_CMD    := ./cmd/senpaiscanner-gui
+MODULE     := github.com/ehsatn/MAGIK
+CMD        := ./cmd/magik
+GUI_CMD    := ./cmd/magik-gui
 VERSION    := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT     := $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
 BUILD_DATE := $(shell date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "unknown")

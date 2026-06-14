@@ -2,15 +2,15 @@
 
 > **English:** [README.md](README.md)
 
-[![CI](https://github.com/matinsenpai/senpaiscanner/actions/workflows/ci.yml/badge.svg)](https://github.com/matinsenpai/senpaiscanner/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/matinsenpai/senpaiscanner?style=flat-square)](https://github.com/matinsenpai/senpaiscanner/releases/latest)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/matinsenpai/senpaiscanner?style=flat-square)](go.mod)
+[![CI](https://github.com/ehsatn/MAGIK/actions/workflows/ci.yml/badge.svg)](https://github.com/ehsatn/MAGIK/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/ehsatn/MAGIK?style=flat-square)](https://github.com/ehsatn/MAGIK/releases/latest)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/ehsatn/MAGIK?style=flat-square)](go.mod)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 [![Platforms](https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows%20%7C%20android%20%7C%20termux-informational?style=flat-square)](#نصب)
 
 ---
 
-<img width="825" height="589" alt="image" src="https://github.com/user-attachments/assets/6558f7b1-bd9d-460a-adf2-d314fe70c48a" />
+MAGIK یک فورک از [MatinSenPai/SenPaiScanner](https://github.com/MatinSenPai/SenPaiScanner) است که با نام جدید، رابط گرافیکی ساده‌تر و ظاهر مرتب‌تر ادامه داده شده.
 
 اگر روی شبکه‌ای هستید که تأخیر بالاست، اتصال بی‌خبر قطع می‌شود و پیدا کردن یک IP کارآمد Cloudflare تبدیل به کار روزانه شده — MAGIK برای همین ساخته شده.
 
@@ -49,7 +49,7 @@
 
 ### دسکتاپ — باینری آماده
 
-از [صفحه Releases](https://github.com/matinsenpai/senpaiscanner/releases/latest) دانلود کنید:
+از [صفحه Releases](https://github.com/ehsatn/MAGIK/releases/latest) دانلود کنید:
 
 | پلتفرم | معماری | فایل |
 |---|---|---|
@@ -65,16 +65,16 @@
 
 ```bash
 # نسخه پایدار
-curl -fsSL https://github.com/MatinSenPai/SenPaiScanner/raw/refs/heads/main/install.sh | bash
+curl -fsSL https://github.com/ehsatn/MAGIK/raw/refs/heads/main/install.sh | bash
 
 # پیش‌انتشار
-curl -fsSL https://github.com/MatinSenPai/SenPaiScanner/raw/refs/heads/main/install.sh | bash -s -- --prerelease
+curl -fsSL https://github.com/ehsatn/MAGIK/raw/refs/heads/main/install.sh | bash -s -- --prerelease
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-$r = Invoke-RestMethod https://api.github.com/repos/matinsenpai/senpaiscanner/releases/latest
+$r = Invoke-RestMethod https://api.github.com/repos/ehsatn/MAGIK/releases/latest
 $url = ($r.assets | Where-Object name -eq "magik-windows-amd64.exe").browser_download_url
 Invoke-WebRequest $url -OutFile magik.exe
 ```
@@ -94,6 +94,8 @@ make build-gui-windows-amd64
 ```
 
 بعد از اجرا، `magik-gui` رابط گرافیکی دارک را به‌صورت محلی در مرورگر باز می‌کند.
+
+![رابط گرافیکی MAGIK](docs/assets/magik-gui.png)
 
 ### اندروید — APK آماده
 
@@ -121,7 +123,7 @@ pkg install curl tar -y
 **۲. نصب MAGIK:**
 
 ```bash
-curl -fsSL https://github.com/MatinSenPai/SenPaiScanner/raw/refs/heads/main/install.sh | bash
+curl -fsSL https://github.com/ehsatn/MAGIK/raw/refs/heads/main/install.sh | bash
 ```
 
 اسکریپت Termux را تشخیص می‌دهد و در `$PREFIX/bin` نصب می‌کند. روی گوشی ۶۴-bit، فایل `magik-linux-arm64` دانلود می‌شود.
@@ -147,7 +149,7 @@ magik
 
 ```bash
 curl -fsSL -o "$PREFIX/bin/magik" \
-  https://github.com/matinsenpai/senpaiscanner/releases/latest/download/magik-linux-arm64
+  https://github.com/ehsatn/MAGIK/releases/latest/download/magik-linux-arm64
 chmod +x "$PREFIX/bin/magik"
 magik
 ```
@@ -155,7 +157,7 @@ magik
 ### از سورس
 
 ```bash
-go install github.com/matinsenpai/senpaiscanner/cmd/senpaiscanner@latest
+go install github.com/ehsatn/MAGIK/cmd/magik@latest
 ```
 
 ---
@@ -351,8 +353,8 @@ MAGIK پروکسی دائمی راه نمی‌اندازد. IPهای Cloudflare 
 ### دسکتاپ
 
 ```bash
-git clone https://github.com/matinsenpai/senpaiscanner.git
-cd senpaiscanner
+git clone https://github.com/ehsatn/MAGIK.git
+cd magik
 make build          # پلتفرم فعلی
 make build-all      # همه پلتفرم‌ها ← dist/
 make test

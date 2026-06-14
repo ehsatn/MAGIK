@@ -15,10 +15,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/matinsenpai/senpaiscanner/internal/ipsrc"
-	"github.com/matinsenpai/senpaiscanner/internal/prober"
-	"github.com/matinsenpai/senpaiscanner/internal/result"
-	"github.com/matinsenpai/senpaiscanner/internal/xraytest"
+	"github.com/ehsatn/MAGIK/internal/ipsrc"
+	"github.com/ehsatn/MAGIK/internal/prober"
+	"github.com/ehsatn/MAGIK/internal/result"
+	"github.com/ehsatn/MAGIK/internal/xraytest"
 )
 
 const maxResultRows = 600

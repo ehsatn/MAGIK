@@ -18,10 +18,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/matinsenpai/senpaiscanner/internal/banner"
-	"github.com/matinsenpai/senpaiscanner/internal/config"
-	"github.com/matinsenpai/senpaiscanner/internal/result"
-	"github.com/matinsenpai/senpaiscanner/internal/xraytest"
+	"github.com/ehsatn/MAGIK/internal/banner"
+	"github.com/ehsatn/MAGIK/internal/config"
+	"github.com/ehsatn/MAGIK/internal/result"
+	"github.com/ehsatn/MAGIK/internal/xraytest"
 )
 
 // ---------------------------------------------------------------------------
@@ -1700,7 +1700,7 @@ func (m AppModel) viewAbout() string {
 	sb.WriteString(styleNormal.Render("  jitter, and identifies the colo (PoP) behind each IP."))
 	sb.WriteString("\n\n")
 
-	sb.WriteString(styleDim.Render("  github.com/matinsenpai/senpaiscanner"))
+	sb.WriteString(styleDim.Render("  github.com/ehsatn/MAGIK"))
 	sb.WriteString("\n\n")
 	sb.WriteString(styleHint.Render("  enter/q → back"))
 	return sb.String()

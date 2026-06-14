@@ -6,8 +6,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/matinsenpai/senpaiscanner/internal/ui"
-	"github.com/matinsenpai/senpaiscanner/pkg/version"
+	"github.com/ehsatn/MAGIK/internal/ui"
+	"github.com/ehsatn/MAGIK/pkg/version"
 )
 
 func main() {

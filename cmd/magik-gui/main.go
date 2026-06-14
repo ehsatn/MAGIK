@@ -12,8 +12,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/matinsenpai/senpaiscanner/internal/webgui"
-	"github.com/matinsenpai/senpaiscanner/pkg/version"
+	"github.com/ehsatn/MAGIK/internal/webgui"
+	"github.com/ehsatn/MAGIK/pkg/version"
 )
 
 func main() {
