@@ -1,5 +1,5 @@
-BINARY     := senpaiscanner
-BINARY_GUI := senpaiscanner-gui
+BINARY     := magik
+BINARY_GUI := magik-gui
 MODULE     := github.com/matinsenpai/senpaiscanner
 CMD        := ./cmd/senpaiscanner
 GUI_CMD    := ./cmd/senpaiscanner-gui
@@ -76,7 +76,7 @@ vet:
 	go vet ./...
 
 clean:
-	rm -f $(BINARY) $(BINARY).exe
+	rm -f $(BINARY) $(BINARY).exe $(BINARY_GUI) $(BINARY_GUI).exe
 	rm -rf dist/
 
 release:

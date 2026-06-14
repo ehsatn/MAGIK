@@ -18,7 +18,7 @@ import (
 
 func main() {
 	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v" || os.Args[1] == "version") {
-		fmt.Println("SenPai Scanner GUI", version.String())
+		fmt.Println("MAGIK GUI", version.String())
 		return
 	}
 
@@ -41,7 +41,7 @@ func main() {
 	if !*noOpen {
 		_ = openBrowser(url)
 	}
-	fmt.Println("SenPai Scanner GUI:", url)
+	fmt.Println("MAGIK GUI:", url)
 
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)

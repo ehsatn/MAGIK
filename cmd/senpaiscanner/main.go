@@ -13,7 +13,7 @@ import (
 func main() {
 	// --version flag without launching TUI
 	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v" || os.Args[1] == "version") {
-		fmt.Println("SenPai Scanner", version.String())
+		fmt.Println("MAGIK", version.String())
 		return
 	}
 

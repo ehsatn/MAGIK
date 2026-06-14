@@ -110,26 +110,33 @@ async function refreshState() {
 async function loadMeta() {
   try {
     const meta = await request("/api/meta");
+    document.title = meta.name || "MAGIK";
     $("version").textContent = meta.version || "dev";
   } catch {
+    document.title = "MAGIK";
     $("version").textContent = "dev";
   }
 }
 
 function render(state) {
   const running = Boolean(state.running);
+  const working = state.working || [];
+  const results = state.results || [];
+  const phase1 = state.phase1 || {};
+  const phase2 = state.phase2 || {};
+
   $("startBtn").disabled = running;
   $("stopBtn").disabled = !running;
-  $("copyBtn").disabled = !state.working.length;
-  $("saveBtn").disabled = !state.working.length;
+  $("copyBtn").disabled = !working.length;
+  $("saveBtn").disabled = !working.length;
 
   $("statusText").textContent = state.error || state.status || "Ready";
   $("phaseLabel").textContent = state.phase || "idle";
-  $("resultCount").textContent = `${fmt.format(state.results.length)} rows`;
-  $("workingCount").textContent = fmt.format(state.working.length);
-  $("p1Done").textContent = `${fmt.format(state.phase1.done)} / ${fmt.format(state.phase1.total || 0)}`;
-  $("p1Healthy").textContent = fmt.format(state.phase1.healthy);
-  $("p2Done").textContent = `${fmt.format(state.phase2.done)} / ${fmt.format(state.phase2.total || 0)}`;
+  $("resultCount").textContent = `${fmt.format(results.length)} rows`;
+  $("workingCount").textContent = fmt.format(working.length);
+  $("p1Done").textContent = `${fmt.format(phase1.done || 0)} / ${fmt.format(phase1.total || 0)}`;
+  $("p1Healthy").textContent = fmt.format(phase1.healthy || 0);
+  $("p2Done").textContent = `${fmt.format(phase2.done || 0)} / ${fmt.format(phase2.total || 0)}`;
   $("elapsed").textContent = formatElapsed(state.elapsed_seconds || 0);
   $("saveState").textContent = state.save_path ? "saved" : "not saved";
 
@@ -140,12 +147,12 @@ function render(state) {
   else if (state.done) dot.classList.add("done");
   else dot.classList.add("idle");
 
-  const activeStats = state.phase === "phase2" ? state.phase2 : state.phase1;
+  const activeStats = state.phase === "phase2" ? phase2 : phase1;
   const pct = activeStats.total > 0 ? Math.min(100, (activeStats.done / activeStats.total) * 100) : 0;
   $("progressBar").style.width = `${pct}%`;
 
-  renderWorking(state.working);
-  renderResults(state.results);
+  renderWorking(working);
+  renderResults(results);
 }
 
 function renderWorking(rows) {
@@ -227,12 +234,12 @@ function toast(message) {
 
 function applyTheme(dark) {
   document.documentElement.dataset.theme = dark ? "dark" : "light";
-  localStorage.setItem("senpai-theme", dark ? "dark" : "light");
+  localStorage.setItem("magik-theme", dark ? "dark" : "light");
   $("themeToggle").checked = dark;
 }
 
 function bootTheme() {
-  const saved = localStorage.getItem("senpai-theme");
+  const saved = localStorage.getItem("magik-theme") || localStorage.getItem("senpai-theme");
   applyTheme(saved !== "light");
 }
 

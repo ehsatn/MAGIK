@@ -91,7 +91,7 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{
-		"name":    "SenPai Scanner",
+		"name":    "MAGIK",
 		"version": s.version,
 	})
 }

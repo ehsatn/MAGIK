@@ -102,8 +102,10 @@ type ScanManager struct {
 func NewScanManager() *ScanManager {
 	return &ScanManager{
 		state: ScanState{
-			Phase:  "idle",
-			Status: "Ready",
+			Phase:   "idle",
+			Status:  "Ready",
+			Results: []ResultView{},
+			Working: []EndpointView{},
 		},
 		workingSeen: make(map[string]struct{}),
 	}
@@ -163,6 +165,12 @@ func (m *ScanManager) State() ScanState {
 	}
 	st.Results = append([]ResultView(nil), m.state.Results...)
 	st.Working = append([]EndpointView(nil), m.state.Working...)
+	if st.Results == nil {
+		st.Results = []ResultView{}
+	}
+	if st.Working == nil {
+		st.Working = []EndpointView{}
+	}
 	return st
 }
 

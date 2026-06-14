@@ -1,4 +1,4 @@
-# SenPai Scanner
+# MAGIK
 
 > **Persian / فارسی:** [README.fa.md](README.fa.md)
 
@@ -27,7 +27,7 @@ A Cloudflare IP finder with a terminal UI and an Android app, built for networks
 
 ## How it works
 
-Run `senpaiscanner` and you land in a short menu. Navigate with arrow keys and Enter — no scan-related CLI flags.
+Run `magik` and you land in a short menu. Navigate with arrow keys and Enter — no scan-related CLI flags.
 
 ```
 ┌────────────────────────────────────────────────────────────┐
@@ -40,7 +40,7 @@ Run `senpaiscanner` and you land in a short menu. Navigate with arrow keys and E
 
 **Find Working IPs** can run in one or two phases:
 
-1.  **Phase 1 — Connectivity scan** probes candidate Cloudflare IPs. Without a config URL it uses a standard HTTP probe; with a URL it derives SNI, host, WebSocket path, and port from your link. SenPai Scanner intelligently parses your VLESS or Trojan configuration URL. In **Random** mode, healthy hits also trigger a **neighbor scan** — nearby addresses in the same Cloudflare block are explored automatically.
+1.  **Phase 1 — Connectivity scan** probes candidate Cloudflare IPs. Without a config URL it uses a standard HTTP probe; with a URL it derives SNI, host, WebSocket path, and port from your link. MAGIK intelligently parses your VLESS or Trojan configuration URL. In **Random** mode, healthy hits also trigger a **neighbor scan** — nearby addresses in the same Cloudflare block are explored automatically.
 2.  **Phase 2 — xray validation** (optional) launches an embedded xray instance and tests the best Phase 1 hits end-to-end through your actual VLESS/Trojan config. Results show endpoint, transport type, download speed, latency (TTFB), and pass/fail status.
 
 Press **`c`** when a scan finishes to copy working `IP:port` endpoints to the clipboard and save them to `ips.txt` next to the binary (or current working directory).
@@ -57,13 +57,13 @@ Download from the [releases page](https://github.com/matinsenpai/senpaiscanner/r
 
 | Platform | Architecture | File |
 |---|---|---|
-| Linux | x86_64 | `senpaiscanner-linux-amd64` |
-| Linux | ARM64 | `senpaiscanner-linux-arm64` |
-| Linux | 32-bit x86 | `senpaiscanner-linux-386` |
-| macOS | Intel | `senpaiscanner-darwin-amd64` |
-| macOS | Apple Silicon | `senpaiscanner-darwin-arm64` |
-| Windows | x86_64 | `senpaiscanner-windows-amd64.exe` |
-| Windows | 32-bit x86 | `senpaiscanner-windows-386.exe` |
+| Linux | x86_64 | `magik-linux-amd64` |
+| Linux | ARM64 | `magik-linux-arm64` |
+| Linux | 32-bit x86 | `magik-linux-386` |
+| macOS | Intel | `magik-darwin-amd64` |
+| macOS | Apple Silicon | `magik-darwin-arm64` |
+| Windows | x86_64 | `magik-windows-amd64.exe` |
+| Windows | 32-bit x86 | `magik-windows-386.exe` |
 
 **Linux / macOS:**
 
@@ -79,13 +79,13 @@ curl -fsSL https://github.com/MatinSenPai/SenPaiScanner/raw/refs/heads/main/inst
 
 ```powershell
 $r = Invoke-RestMethod https://api.github.com/repos/matinsenpai/senpaiscanner/releases/latest
-$url = ($r.assets | Where-Object name -eq "senpaiscanner-windows-amd64.exe").browser_download_url
-Invoke-WebRequest $url -OutFile senpaiscanner.exe
+$url = ($r.assets | Where-Object name -eq "magik-windows-amd64.exe").browser_download_url
+Invoke-WebRequest $url -OutFile magik.exe
 ```
 
 ### Desktop GUI
 
-The classic `senpaiscanner` binary still opens the terminal UI. To build the graphical desktop launcher:
+The classic terminal UI is now built as `magik`. To build the graphical desktop launcher:
 
 ```bash
 make build-gui
@@ -97,7 +97,7 @@ On Windows, build the GUI binary without a console window:
 make build-gui-windows-amd64
 ```
 
-Run `senpaiscanner-gui` and it opens the dark browser-based interface locally.
+Run `magik-gui` and it opens the dark browser-based interface locally.
 
 ### Android — pre-built APK
 
@@ -105,9 +105,9 @@ Signed release APKs are attached to each GitHub release:
 
 | File pattern | Description |
 |---|---|
-| `SenPaiScanner-{version}-universal-release.apk` | All ABIs (recommended) |
-| `SenPaiScanner-{version}-arm64-v8a-release.apk` | 64-bit ARM only |
-| `SenPaiScanner-{version}-armeabi-v7a-release.apk` | 32-bit ARM only |
+| `MAGIK-{version}-universal-release.apk` | All ABIs (recommended) |
+| `MAGIK-{version}-arm64-v8a-release.apk` | 64-bit ARM only |
+| `MAGIK-{version}-armeabi-v7a-release.apk` | 32-bit ARM only |
 
 Install the APK on your device (enable “Install from unknown sources” if needed), grant network permission, and tap **START SCAN** on the home screen.
 
@@ -122,7 +122,7 @@ pkg update && pkg upgrade -y
 pkg install curl tar -y
 ```
 
-**2. Install SenPai Scanner** (auto-detects Termux and installs to `$PREFIX/bin`):
+**2. Install MAGIK** (auto-detects Termux and installs to `$PREFIX/bin`):
 
 ```bash
 curl -fsSL https://github.com/MatinSenPai/SenPaiScanner/raw/refs/heads/main/install.sh | bash
@@ -134,12 +134,12 @@ Pre-release channel:
 curl -fsSL https://github.com/MatinSenPai/SenPaiScanner/raw/refs/heads/main/install.sh | bash -s -- --prerelease
 ```
 
-The installer downloads `senpaiscanner-linux-arm64` on 64-bit phones. (32-bit ARM devices are uncommon; use the native APK if the Linux binary is unavailable.)
+The installer downloads `magik-linux-arm64` on 64-bit phones. (32-bit ARM devices are uncommon; use the native APK if the Linux binary is unavailable.)
 
 **3. Run:**
 
 ```bash
-senpaiscanner
+magik
 ```
 
 **Termux tips**
@@ -150,7 +150,7 @@ senpaiscanner
 | **Paste config URL** | Long-press in Termux → Paste, or `termux-clipboard-get` if `termux-api` is installed. *For reliable clipboard access, ensure `pkg install termux-api` is run and permissions are granted.* |
 | **Clipboard (`c` key)** | May not work in all Termux setups by default. Results are always saved to `ips.txt` in the current directory when copy runs — use that file if clipboard fails. |
 | **`ips.txt` / live results** | Keep files in `~/` (e.g. `cd ~` before starting). Paths shown in the TUI are relative to the working directory. |
-| **Config file** | `~/.config/senpaiscanner/config.json` — powers **Retry Last Scan**. |
+| **Config file** | `~/.config/magik/config.json` — powers **Retry Last Scan**. |
 | **Long scans** | Optional: `termux-wake-lock` (from `pkg install termux-api`) to reduce the screen turning off mid-scan. |
 | **Update** | Re-run the `install.sh` one-liner; it upgrades to the latest stable release. |
 
@@ -168,7 +168,7 @@ senpaiscanner
 
 ## Contributing
 
-We welcome contributions! If you're interested in helping develop SenPai Scanner, please see our [CONTRIBUTING.md](CONTRIBUTING.md) guide for details on how to set up your development environment, propose changes, report bugs, or suggest new features.
+We welcome contributions! If you're interested in helping develop MAGIK, please see our [CONTRIBUTING.md](CONTRIBUTING.md) guide for details on how to set up your development environment, propose changes, report bugs, or suggest new features.
 
 Ideas for contributions include:
 *   Adding support for more proxy protocols (e.g., Shadowsocks, WireGuard).
@@ -179,4 +179,4 @@ Ideas for contributions include:
 
 ## License
 
-SenPai Scanner is released under the MIT License. See [LICENSE](LICENSE) for more details.
+MAGIK is released under the MIT License. See [LICENSE](LICENSE) for more details.
