@@ -18,6 +18,7 @@ A Cloudflare IP finder with a terminal UI and an Android app, built for networks
 
 *   **Cloudflare IP Scanning**: Quickly finds working Cloudflare IPs.
 *   **Terminal UI (TUI)**: Interactive menu-driven interface, no complex CLI flags.
+*   **Desktop GUI**: A clean local web GUI with dark mode and coding fonts.
 *   **Multi-Platform**: Linux, macOS, Windows, Android (APK & Termux).
 *   **Proxy Validation**: End-to-end testing of IPs using VLESS/Trojan configurations (via embedded Xray).
 *   **Neighbor Scan**: Explores nearby IPs in the same Cloudflare block for more hits.
@@ -81,6 +82,22 @@ $r = Invoke-RestMethod https://api.github.com/repos/matinsenpai/senpaiscanner/re
 $url = ($r.assets | Where-Object name -eq "senpaiscanner-windows-amd64.exe").browser_download_url
 Invoke-WebRequest $url -OutFile senpaiscanner.exe
 ```
+
+### Desktop GUI
+
+The classic `senpaiscanner` binary still opens the terminal UI. To build the graphical desktop launcher:
+
+```bash
+make build-gui
+```
+
+On Windows, build the GUI binary without a console window:
+
+```bash
+make build-gui-windows-amd64
+```
+
+Run `senpaiscanner-gui` and it opens the dark browser-based interface locally.
 
 ### Android — pre-built APK
 

@@ -16,6 +16,8 @@
 
 این ابزار IPهای لبه Cloudflare را پروب می‌کند، بهترین‌ها را با xray داخلی و کانفیگ VLESS یا Trojan خودتان تست می‌کند، و نتیجه را آماده‌ی paste کردن تحویل می‌دهد. بدون حفظ کردن فلگ‌های عجیب، بدون تنظیمات پیچیده — فقط ابزار را اجرا کنید و بگذارید کارش را بکند.
 
+نسخه‌ی ترمینالی همچنان با `senpaiscanner` اجرا می‌شود. برای رابط گرافیکی دسکتاپ، باینری `senpaiscanner-gui` یک UI محلی دارک با فونت‌های کدنویسی باز می‌کند.
+
 ---
 
 ## چطور کار می‌کند
@@ -76,6 +78,22 @@ $r = Invoke-RestMethod https://api.github.com/repos/matinsenpai/senpaiscanner/re
 $url = ($r.assets | Where-Object name -eq "senpaiscanner-windows-amd64.exe").browser_download_url
 Invoke-WebRequest $url -OutFile senpaiscanner.exe
 ```
+
+### رابط گرافیکی دسکتاپ
+
+برای ساخت نسخه GUI:
+
+```bash
+make build-gui
+```
+
+روی ویندوز، این هدف باینری GUI را بدون باز شدن پنجره CMD می‌سازد:
+
+```bash
+make build-gui-windows-amd64
+```
+
+بعد از اجرا، `senpaiscanner-gui` رابط گرافیکی دارک را به‌صورت محلی در مرورگر باز می‌کند.
 
 ### اندروید — APK آماده
 

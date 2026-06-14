@@ -47,17 +47,17 @@ func nextPort() int {
 
 // ValidationResult holds the outcome of testing a VLESS config through xray.
 type ValidationResult struct {
-	IP              string
-	Port            int
-	Success         bool
-	Latency         time.Duration // time to first byte
-	Throughput      float64       // bytes/sec for download test
-	BytesRecv       int64
-	UploadThroughput float64      // bytes/sec for upload test (0 if not tested)
+	IP               string
+	Port             int
+	Success          bool
+	Latency          time.Duration // time to first byte
+	Throughput       float64       // bytes/sec for download test
+	BytesRecv        int64
+	UploadThroughput float64 // bytes/sec for upload test (0 if not tested)
 	UploadBytesSent  int64
-	Error           string
-	Transport       string // ws, grpc, xhttp
-	Retries         int    // how many attempts were needed
+	Error            string
+	Transport        string // ws, grpc, xhttp
+	Retries          int    // how many attempts were needed
 }
 
 // ValidateConfig starts an xray instance with the given config, sends test
@@ -326,9 +326,7 @@ func proxyRelaxedEndpointCheck(ctx context.Context, proxyAddr, targetURL, author
 	if n < minBytes {
 		return false, latency, fmt.Errorf("short response (%d bytes)", n)
 	}
-	if !gotFirst {
-		latency = time.Since(start)
-	}
+	latency = ensurePositiveLatency(start, latency, gotFirst)
 	return true, latency, nil
 }
 
@@ -478,10 +476,18 @@ func proxyConnectivityCheckTarget(ctx context.Context, proxyAddr, target, author
 	if !strings.Contains(string(body), "colo=") {
 		return false, latency, fmt.Errorf("no colo in trace response")
 	}
-	if !gotFirst {
+	latency = ensurePositiveLatency(start, latency, gotFirst)
+	return true, latency, nil
+}
+
+func ensurePositiveLatency(start time.Time, latency time.Duration, gotFirst bool) time.Duration {
+	if !gotFirst || latency <= 0 {
 		latency = time.Since(start)
 	}
-	return true, latency, nil
+	if latency <= 0 {
+		return time.Nanosecond
+	}
+	return latency
 }
 
 func proxyDataPathCheck(ctx context.Context, proxyAddr string, cfg *VLESSConfig) (bool, time.Duration, error) {
